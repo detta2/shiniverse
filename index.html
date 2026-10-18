@@ -2,7 +2,7 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>ShiniVerse — Portal Baca Komik & MangaBrush Studio</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -54,6 +54,23 @@ tailwind.config = {
   .shimmer-text{background:linear-gradient(90deg,#f3f4f6 25%,#fda4af 50%,#f3f4f6 75%);background-size:800px 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 1.2s linear infinite}
   .stage-bg{background-color:#0a0e18;background-image:radial-gradient(circle at 1px 1px, #1c2537 1px, transparent 0);background-size:22px 22px}
   .canvas-container{position:absolute !important; inset:0;}
+  /* ===== Mobile polish (HP) ===== */
+  html,body{overflow-x:clip}
+  .grid>*{min-width:0}
+  .no-scrollbar::-webkit-scrollbar{display:none}
+  .no-scrollbar{scrollbar-width:none;-ms-overflow-style:none}
+  .brush-shell{min-height:0}
+  @media (min-width:1024px){.brush-shell{min-height:78vh}}
+  @media (hover:none){
+    .group .group-hover\:opacity-100{opacity:.94 !important}
+  }
+  @media (max-width:767px){
+    input,select,textarea{font-size:16px !important}
+    .safe-b{padding-bottom:env(safe-area-inset-bottom)}
+    input[type=range]::-webkit-slider-thumb{width:22px;height:22px}
+    input[type=range]::-moz-range-thumb{width:22px;height:22px}
+    input[type=range]{height:8px}
+  }
   .rd-page{margin:0 auto;position:relative;line-height:0}
   .rd-page img{display:block;width:100%;margin:0;padding:0;user-select:none;-webkit-user-drag:none}
   .txt-layer{position:absolute;transform-origin:center;text-align:center;line-height:1.05;pointer-events:none;display:flex;align-items:center;justify-content:center;overflow:visible}
@@ -85,22 +102,22 @@ tailwind.config = {
         <span class="block text-[9px] font-bold tracking-[.18em] text-mut mt-0.5">&amp; MANGABRUSH STUDIO</span>
       </span>
     </button>
-    <div class="flex-1 max-w-xl mx-auto relative">
+    <div class="flex-1 min-w-0 max-w-xl mx-auto relative">
       <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-mut text-sm">🔍</span>
       <input id="navSearch" type="text" placeholder="Cari judul komik… (live)" autocomplete="off"
         class="w-full bg-surface border border-line rounded-full pl-10 pr-4 py-2.5 text-[13px] font-medium placeholder:text-slate-500 transition">
       <div id="searchDrop" class="absolute left-0 right-0 top-[calc(100%+8px)] bg-surface border border-line rounded-2xl shadow-2xl overflow-hidden hidden max-h-[60vh] overflow-y-auto"></div>
     </div>
-    <button id="btnNavBookmark" class="hidden md:flex items-center gap-2 text-[13px] font-bold bg-surface hover:bg-[#1a2438] border border-line rounded-full px-4 py-2.5 transition">
+    <button id="btnNavBookmark" class="flex-none hidden md:flex items-center gap-2 text-[13px] font-bold bg-surface hover:bg-[#1a2438] border border-line rounded-full px-4 py-2.5 transition">
       🔖 <span class="hidden lg:inline">Bookmark</span><span id="bmCount" class="chip bg-crim/20 text-rose-300 border border-crim/40">0</span>
     </button>
-    <button id="btnNavSettings" class="flex items-center gap-2 text-[13px] font-bold bg-surface hover:bg-[#1a2438] border border-line rounded-full px-3.5 sm:px-4 py-2.5 transition">
+    <button id="btnNavSettings" class="flex-none flex items-center gap-2 text-[13px] font-bold bg-surface hover:bg-[#1a2438] border border-line rounded-full px-3.5 sm:px-4 py-2.5 transition">
       ⚙️ <span class="hidden lg:inline">Settings (API &amp; DB)</span>
     </button>
-    <button id="btnAdminGate" class="flex items-center gap-2 text-[13px] font-bold bg-surface hover:bg-[#1a2438] border border-line rounded-full px-3.5 sm:px-4 py-2.5 transition">
+    <button id="btnAdminGate" class="flex-none flex items-center gap-2 text-[13px] font-bold bg-surface hover:bg-[#1a2438] border border-line rounded-full px-3.5 sm:px-4 py-2.5 transition">
       🔒 <span class="hidden lg:inline" id="adminGateLabel">Admin</span>
     </button>
-    <button id="btnNavStudio" class="admin-only flex items-center gap-2 text-[13px] font-extrabold text-white rounded-full px-3.5 sm:px-5 py-2.5 grad-btn shadow-glow transition hover:brightness-110 active:translate-y-px">
+    <button id="btnNavStudio" class="flex-none admin-only flex items-center gap-2 text-[13px] font-extrabold text-white rounded-full px-3.5 sm:px-5 py-2.5 grad-btn shadow-glow transition hover:brightness-110 active:translate-y-px">
       🎨 <span class="hidden sm:inline">Studio Admin &amp; Brush Translator</span><span class="sm:hidden">Studio</span>
     </button>
   </div>
@@ -121,14 +138,14 @@ tailwind.config = {
       <div>
         <div class="flex items-center gap-2 flex-wrap">
           <h2 class="text-lg sm:text-xl font-extrabold text-white mr-1">📚 Update Proyek Terbaru</h2>
-          <div class="flex gap-1.5 ml-auto" id="filterTabs">
-            <button class="tab-btn on" data-ftype="ALL">Semua</button>
-            <button class="tab-btn" data-ftype="KR">Manhwa (KR)</button>
-            <button class="tab-btn" data-ftype="JP">Manga (JP)</button>
-            <button class="tab-btn" data-ftype="CN">Manhua (CN)</button>
-            <button class="tab-btn" data-ftype="US">Barat (US)</button>
-            <button class="tab-btn" data-ftype="ID">Indonesia (ID)</button>
-            <button class="tab-btn" data-ftype="OTHER">Lainnya</button>
+          <div class="flex gap-1.5 ml-auto max-w-full overflow-x-auto no-scrollbar py-0.5" id="filterTabs">
+            <button class="tab-btn on whitespace-nowrap flex-none" data-ftype="ALL">Semua</button>
+            <button class="tab-btn whitespace-nowrap flex-none" data-ftype="KR">Manhwa (KR)</button>
+            <button class="tab-btn whitespace-nowrap flex-none" data-ftype="JP">Manga (JP)</button>
+            <button class="tab-btn whitespace-nowrap flex-none" data-ftype="CN">Manhua (CN)</button>
+            <button class="tab-btn whitespace-nowrap flex-none" data-ftype="US">Barat (US)</button>
+            <button class="tab-btn whitespace-nowrap flex-none" data-ftype="ID">Indonesia (ID)</button>
+            <button class="tab-btn whitespace-nowrap flex-none" data-ftype="OTHER">Lainnya</button>
           </div>
         </div>
         <div id="gridSeries" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mt-4"></div>
@@ -209,7 +226,7 @@ tailwind.config = {
         <p class="text-mut text-sm font-semibold">— Akhir Chapter —</p>
       </div>
     </div>
-    <div id="rdHudBottom" class="hud fixed bottom-0 inset-x-0 z-40 glass border-t border-line">
+    <div id="rdHudBottom" class="hud safe-b fixed bottom-0 inset-x-0 z-40 glass border-t border-line">
       <div class="max-w-[900px] mx-auto px-3 h-16 flex items-center gap-2">
         <button id="btnPrevCh" class="font-bold text-[12.5px] bg-surface border border-line rounded-full px-4 py-2.5 hover:bg-[#1a2438] transition disabled:opacity-40">← Prev</button>
         <select id="rdChapterSel" class="flex-1 bg-surface border border-line rounded-full px-4 py-2.5 text-[12.5px] font-bold min-w-0"></select>
@@ -225,10 +242,10 @@ tailwind.config = {
         <h2 class="text-lg sm:text-xl font-extrabold text-white">🎨 Studio Admin <span class="grad-text">&amp; Brush Translator</span></h2>
         <span id="dbStateBadge" class="chip bg-vio/15 text-violet-300 border border-vio/40">DB: localStorage</span>
         <span class="flex-1"></span>
-        <div class="flex gap-1.5 bg-surface border border-line rounded-full p-1">
-          <button id="tabCms" class="tab-btn on !border-0">🗂️ Manajemen Komik &amp; Chapter</button>
-          <button id="tabBrush" class="tab-btn !border-0">🖌️ Brush Translator</button>
-          <button id="tabMirror" class="tab-btn !border-0">🤖 Autonomous Mirror Agent</button>
+        <div class="flex gap-1.5 bg-surface border border-line rounded-full p-1 max-w-full overflow-x-auto no-scrollbar">
+          <button id="tabCms" class="whitespace-nowrap flex-none tab-btn on !border-0">🗂️ Manajemen Komik &amp; Chapter</button>
+          <button id="tabBrush" class="whitespace-nowrap flex-none tab-btn !border-0">🖌️ Brush Translator</button>
+          <button id="tabMirror" class="whitespace-nowrap flex-none tab-btn !border-0">🤖 Autonomous Mirror Agent</button>
         </div>
       </div>
 
@@ -394,9 +411,9 @@ tailwind.config = {
           <button id="btnPageNext" class="text-[12px] font-bold bg-[#1a2438] border border-line rounded-lg px-3 py-2 hover:bg-[#232f4a] transition">Hal →</button>
         </div>
 
-        <div class="flex gap-0 mt-3 border border-line rounded-3xl overflow-hidden bg-surface" style="min-height:78vh">
+        <div class="brush-shell flex flex-col lg:flex-row gap-0 mt-3 border border-line rounded-3xl overflow-hidden bg-surface">
           <!-- LEFT TOOLBAR -->
-          <aside class="w-[178px] flex-none bg-[#0d1322] border-r border-line p-3 flex flex-col gap-1 overflow-y-auto">
+          <aside class="order-2 lg:order-1 w-full lg:w-[178px] flex-none bg-[#0d1322] border-t lg:border-t-0 lg:border-r border-line p-3 flex flex-col gap-1 overflow-y-auto">
             <div class="text-[10px] font-bold tracking-[.14em] text-mut px-1 pb-1.5">ALAT KANVAS</div>
             <button class="tool-btn on" data-tool="brush">🖌️ Brush Mask</button>
             <button class="tool-btn" data-tool="select">✋ Select / Move</button>
@@ -436,7 +453,7 @@ tailwind.config = {
           </aside>
 
           <!-- CENTER -->
-          <div class="flex-1 relative flex flex-col min-w-0">
+          <div class="order-1 lg:order-2 lg:flex-1 relative flex flex-col min-w-0 w-full h-[62vh] lg:h-auto">
             <div id="stageWrap" class="stage-bg relative flex-1 overflow-hidden">
               <canvas id="stage"></canvas>
               <div id="scanLayer" class="absolute inset-0 pointer-events-none overflow-hidden"></div>
@@ -450,7 +467,7 @@ tailwind.config = {
           </div>
 
           <!-- RIGHT INSPECTOR -->
-          <aside class="w-[300px] flex-none bg-[#0d1322] border-l border-line flex flex-col overflow-y-auto">
+          <aside class="order-3 w-full lg:w-[300px] flex-none bg-[#0d1322] border-t lg:border-t-0 lg:border-l border-line flex flex-col overflow-y-auto">
             <div class="p-3.5 pb-3 border-b border-line">
               <button id="btnTranslate" class="w-full text-white font-extrabold text-[14.5px] rounded-xl py-3 px-3 grad-btn shadow-glow transition hover:brightness-110 active:translate-y-px disabled:opacity-50">
                 ✨ Translate &amp; Generative Fill
@@ -772,7 +789,7 @@ tailwind.config = {
 <div id="toast" class="fixed left-1/2 -translate-x-1/2 bottom-20 md:bottom-8 z-[60] hidden bg-[#1a2438] border border-line text-[13px] font-semibold text-white px-4 py-2.5 rounded-xl shadow-2xl fadein max-w-[92vw] text-center"></div>
 
 <!-- ================= MOBILE BOTTOM BAR ================= -->
-<nav class="md:hidden fixed bottom-0 inset-x-0 z-40 glass border-t border-line">
+<nav class="md:hidden safe-b fixed bottom-0 inset-x-0 z-40 glass border-t border-line">
   <div class="grid grid-cols-4 h-16">
     <button data-mnav="home" class="flex flex-col items-center justify-center gap-0.5 text-rose-400"><span class="text-lg">🏠</span><span class="text-[10px] font-bold">Home</span></button>
     <button data-mnav="projects" class="flex flex-col items-center justify-center gap-0.5 text-mut"><span class="text-lg">📚</span><span class="text-[10px] font-bold">Projek</span></button>
@@ -1408,7 +1425,20 @@ function setStudioTab(which) {
   $("panelCms").classList.toggle("hidden", which !== "cms");
   $("panelBrush").classList.toggle("hidden", which !== "brush");
   $("panelMirror").classList.toggle("hidden", which !== "mirror");
-  if (which === "brush") initStudioOnce();
+  if (which === "brush") {
+    initStudioOnce();
+    // Setelah panel terlihat & layout mobile selesai, samakan ukuran kanvas dgn panggung lalu fit ulang
+    setTimeout(() => {
+      try {
+        const wrap = $("stageWrap");
+        if (canvas && wrap && wrap.clientWidth) {
+          canvas.setDimensions({ width: wrap.clientWidth, height: wrap.clientHeight });
+          if (pageImg) fitView();
+          canvas.requestRenderAll();
+        }
+      } catch (e) { /* abaikan */ }
+    }, 80);
+  }
 }
 $("tabCms").addEventListener("click", () => setStudioTab("cms"));
 $("tabBrush").addEventListener("click", () => setStudioTab("brush"));
@@ -1819,7 +1849,7 @@ function initStudioOnce() {
   window.addEventListener("resize", () => {
     if (!canvas || $("panelBrush").classList.contains("hidden")) return;
     canvas.setDimensions({ width: wrap.clientWidth, height: wrap.clientHeight });
-    canvas.requestRenderAll();
+    if (pageImg) fitView(); else canvas.requestRenderAll();
   });
   document.addEventListener("keydown", (e) => {
     if (!canvas || $("viewStudio").classList.contains("on") === false) return;
