@@ -2160,72 +2160,11 @@ async function getTessWorker(langKey) {
     langPath: "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main",
     gzip: false,
   });
+  if (langKey === "eng") {
+    try { await tessWorker.setParameters({ tessedit_char_whitelist: OCR_WHITELIST }); } catch (e) {}
+  }
   tessLangKey = langKey;
   return tessWorker;
-}
-function prepCropForOCR(crop, invertHint) {
-  const scale = Math.max(1, Math.min(4, Math.max(420 / Math.max(crop.width, crop.height), 300 / Math.min(crop.width, crop.height))));
-  const tmp = document.createElement("canvas");
-  tmp.width = Math.round(crop.width * scale);
-  tmp.height = Math.round(crop.height * scale);
-  const tctx = tmp.getContext("2d");
-  tctx.fillStyle = "#ffffff";
-  tctx.fillRect(0, 0, tmp.width, tmp.height);
-  tctx.drawImage(crop, 0, 0, tmp.width, tmp.height);
-  try {
-    const id = tctx.getImageData(0, 0, tmp.width, tmp.height);
-    const d = id.data;
-    let sum = 0;
-    for (let i = 0; i < d.length; i += 16) sum += (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
-    const mean = sum / (d.length / 16);
-    const invert = (invertHint === true || invertHint === false) ? invertHint : mean < 110;
-    for (let i = 0; i < d.length; i += 4) {
-      let g = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
-      if (invert) g = 255 - g;
-      g = Math.max(0, Math.min(255, (g - 128) * 1.35 + 128));
-      d[i] = d[i + 1] = d[i + 2] = g;
-      d[i + 3] = 255;
-    }
-    tctx.putImageData(id, 0, 0);
-  } catch (e) { /* biarkan apa adanya */ }
-  // Border putih di sekeliling: Tesseract membaca teks yang menyentuh tepi gambar dengan buruk
-  const B = Math.max(14, Math.round(0.07 * Math.max(tmp.width, tmp.height)));
-  const out = document.createElement("canvas");
-  out.width = tmp.width + B * 2;
-  out.height = tmp.height + B * 2;
-  const octx = out.getContext("2d");
-  octx.fillStyle = "#ffffff";
-  octx.fillRect(0, 0, out.width, out.height);
-  octx.drawImage(tmp, B, B);
-  return out;
-}
-async function ocrCropText(crop, fill) {
-  const src = $("srcLang").value;
-  const langKey = TESS_LANG[src] || "eng";
-  const worker = await getTessWorker(langKey);
-  try { await worker.setParameters({ tessedit_pageseg_mode: "6" }); } catch (e) {}
-  const clean = (raw) => {
-    let t = (raw || "").replace(/\r/g, "").trim();
-    if (src === "ja" || src === "zh" || src === "ko") t = t.replace(/\s+(?=[\u3000-\u9fff\uac00-\ud7af])/g, "").replace(/(?<=[\u3000-\u9fff\uac00-\ud7af])\s+/g, "");
-    t = t.replace(/[ \t]+/g, " ").replace(/\n{2,}/g, "\n").trim();
-    // Buang baris sampah (sisa garis tepi balon terbaca sbg "- —s", "~~ _", dsb):
-    // baris dipertahankan hanya bila punya >=2 huruf/angka & rasio hurufnya layak.
-    const aln = (s) => (s.match(/[\p{L}\p{N}]/gu) || []).length;
-    const lines = t.split("\n");
-    const kept = lines.filter((ln) => { const a = aln(ln); return a >= 2 && a / Math.max(1, ln.trim().length) >= 0.3; });
-    if (kept.length && kept.join("").length >= 2) t = kept.join("\n");
-    return t;
-  };
-  const alnum = (t) => t.replace(/[^\p{L}\p{N}]/gu, "").length;
-  // Keputusan hitam-putih dari warna ISI balon (bukan rata-rata crop yang bisa
-  // tertipu latar gelap di sekeliling balon kecil). Gagal -> coba kebalikannya.
-  const hint = fill ? ((0.2126 * fill.r + 0.7152 * fill.g + 0.0722 * fill.b) / 255) < 0.45 : null;
-  let txt = clean(((await worker.recognize(prepCropForOCR(crop, hint))).data || {}).text);
-  if (alnum(txt) < 2 && hint !== null) {
-    const alt = clean(((await worker.recognize(prepCropForOCR(crop, !hint))).data || {}).text);
-    if (alnum(alt) > alnum(txt)) txt = alt;
-  }
-  return txt;
 }
 async function translateGoogleGtx(text, src, tgt) {
   const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=" + (GT_SL[src] || "auto") + "&tl=" + (GT_SL[tgt] || "id") + "&dt=t&q=" + encodeURIComponent(text.slice(0, 900));
@@ -2284,37 +2223,268 @@ function contentCrop(srcCanvas, fill) {
     if (cw > w * 0.97 && ch > h * 0.97) return null;
     const out = document.createElement("canvas");
     out.width = cw; out.height = ch;
-    out.getContext("2d").drawImage(srcCanvas, minX, minY, cw, ch, 0, 0, cw, ch);
+    const octx2 = out.getContext("2d");
+    octx2.drawImage(srcCanvas, minX, minY, cw, ch, 0, 0, cw, ch);
+    // Putihkan bingkai tepi potongan: sisa potongan garis balon menempel di
+    // tepi hasil crop dan terbaca sebagai baris sampah ("- 6hOh'"). Teks asli
+    // tidak pernah menempel persis ke tepi wilayah isi balon.
+    try {
+      const fx = Math.max(3, Math.round(cw * 0.06)), fy = Math.max(3, Math.round(ch * 0.06));
+      octx2.fillStyle = fill.css;
+      octx2.fillRect(0, 0, cw, fy); octx2.fillRect(0, ch - fy, cw, fy);
+      octx2.fillRect(0, 0, fx, ch); octx2.fillRect(cw - fx, 0, fx, ch);
+    } catch (e) {}
     return out;
   } catch (e) { return null; }
 }
-async function localOCRTranslate(cropTight, cropWide, fill) {
-  const src = $("srcLang").value, tgt = $("tgtLang").value;
-  setStatus("OCR lokal membaca teks asli di area brush…");
-  const alnum = (t) => (t || "").replace(/[^\p{L}\p{N}]/gu, "").length;
-  // "Bermakna": bukan sekadar 2 huruf acak sisa garis tepi ("x 2") — untuk teks
-  // Latin wajib ada vokal atau >=4 huruf/angka. CJK: cukup >=2 karakter.
-  const meaningful = (t) => { const a = alnum(t); if (a < 2) return false; if (src !== "en") return true; return a >= 4 || /[aeiou]/i.test(t || ""); };
-  let original = await ocrCropText(cropWide, fill);
-  if (!meaningful(original)) {
-    const cc = contentCrop(cropTight, fill);
-    if (cc) {
-      setStatus("Membaca ulang mengikuti bentuk balon…");
-      original = await ocrCropText(cc, fill);
+/* ================= OCR LOKAL v2 =================
+   Alur: isolasi area brush (whiteout) -> binarisasi -> OCR SEMUA varian
+   crop/PSM -> gerbang confidence + leksikal -> pilih skor terbaik ->
+   kamus instan / terjemahan mesin -> sanity check. Sampah = GAGAL jujur. */
+const OCR_WHITELIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,!?'-\" ";
+function cleanOCRText(raw, src) {
+  let t = (raw || "").replace(/\r/g, "").trim();
+  if (src === "ja" || src === "zh" || src === "ko") t = t.replace(/\s+(?=[\u3000-\u9fff\uac00-\ud7af])/g, "").replace(/(?<=[\u3000-\u9fff\uac00-\ud7af])\s+/g, "");
+  t = t.replace(/[ \t]+/g, " ").replace(/\n{2,}/g, "\n").trim();
+  // Buang baris sampah (sisa garis tepi terbaca sbg "- --s", "~~ _", dsb)
+  const aln = (s) => (s.match(/[\p{L}\p{N}]/gu) || []).length;
+  const lines = t.split("\n");
+  const kept = lines.filter((ln) => { const a = aln(ln); return a >= 2 && a / Math.max(1, ln.trim().length) >= 0.3; });
+  if (kept.length && kept.join("").length >= 2) t = kept.join("\n");
+  return t;
+}
+/* Isolasi area brush: piksel di LUAR tapak sapuan kuas (tapi di dalam bbox)
+   diputihkan bersih, supaya garis lengkung tepi balon / rambut karakter /
+   screentone di sekeliling teks tidak ikut terbaca sebagai huruf sampah. */
+function buildWhiteoutCanvas(srcCanvas, paths, originX, originY) {
+  const w = srcCanvas.width, h = srcCanvas.height;
+  const out = document.createElement("canvas");
+  out.width = w; out.height = h;
+  const octx = out.getContext("2d");
+  octx.drawImage(srcCanvas, 0, 0);
+  if (!paths || !paths.length) return out;
+  try {
+    const mask = document.createElement("canvas");
+    mask.width = w; mask.height = h;
+    const mctx = mask.getContext("2d");
+    mctx.fillStyle = "#000"; mctx.fillRect(0, 0, w, h);
+    mctx.strokeStyle = "#fff"; mctx.lineCap = "round"; mctx.lineJoin = "round";
+    for (const p of paths) {
+      if (!p || !Array.isArray(p.path)) continue;
+      let pd = null;
+      try { pd = new Path2D(p.path.map((c) => c.join(" ")).join(" ")); } catch (e) { pd = null; }
+      if (!pd) continue;
+      mctx.save();
+      mctx.translate(-originX, -originY);
+      mctx.lineWidth = Math.max(2, (p.strokeWidth || 30) + 6);
+      mctx.stroke(pd);
+      mctx.restore();
     }
+    const id = octx.getImageData(0, 0, w, h);
+    const md = mctx.getImageData(0, 0, w, h).data;
+    const d = id.data;
+    for (let i = 0; i < d.length; i += 4) { if (md[i] < 128) { d[i] = 255; d[i + 1] = 255; d[i + 2] = 255; } }
+    octx.putImageData(id, 0, 0);
+  } catch (e) { /* whiteout gagal -> pakai crop apa adanya */ }
+  return out;
+}
+/* Pre-processing: upscale minimal 2x (adaptif s/d 4x utk crop mungil),
+   grayscale dgn polaritas mengikuti isi balon, binarisasi ambang 165
+   (huruf tegas, noise JPG & screentone lenyap), border putih 24px. */
+function prepOCRv2(crop, invert) {
+  const scale = Math.max(2, Math.min(4, Math.max(420 / Math.max(crop.width, crop.height), 300 / Math.min(crop.width, crop.height))));
+  const tmp = document.createElement("canvas");
+  tmp.width = Math.round(crop.width * scale);
+  tmp.height = Math.round(crop.height * scale);
+  const tctx = tmp.getContext("2d");
+  tctx.fillStyle = "#ffffff";
+  tctx.fillRect(0, 0, tmp.width, tmp.height);
+  tctx.drawImage(crop, 0, 0, tmp.width, tmp.height);
+  try {
+    const id = tctx.getImageData(0, 0, tmp.width, tmp.height);
+    const d = id.data;
+    for (let i = 0; i < d.length; i += 4) {
+      let g = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+      if (invert) g = 255 - g;
+      g = g < 165 ? 0 : 255;
+      d[i] = d[i + 1] = d[i + 2] = g;
+      d[i + 3] = 255;
+    }
+    tctx.putImageData(id, 0, 0);
+  } catch (e) { /* biarkan apa adanya */ }
+  const B = 24;
+  const out = document.createElement("canvas");
+  out.width = tmp.width + B * 2;
+  out.height = tmp.height + B * 2;
+  const octx = out.getContext("2d");
+  octx.fillStyle = "#ffffff";
+  octx.fillRect(0, 0, out.width, out.height);
+  octx.drawImage(tmp, B, B);
+  return out;
+}
+function lexTokens(text) {
+  return (text || "").split(/\s+/).map((t) => t.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9']+$/g, "")).filter(Boolean);
+}
+/* Skor leksikal Latin: kata valid = punya vokal (a i u e o y), tidak campur
+   huruf+angka, tanpa deret konsonan > 4, kata 1 huruf hanya "I"/"A". */
+function lexScoreLatin(text) {
+  const toks = lexTokens(text);
+  if (!toks.length) return { score: 0, valid: 0, total: 0, shortRatio: 1 };
+  let valid = 0, short = 0;
+  for (const tk of toks) {
+    const t = tk.toLowerCase();
+    if (t.length <= 2) short++;
+    let ok = /[aeiouy]/.test(t);
+    if (/[a-z]/.test(t) && /[0-9]/.test(t)) ok = false;
+    if (t.length === 1 && t !== "i" && t !== "a") ok = false;
+    if (ok) {
+      let run = 0;
+      for (const ch of t) {
+        if (/[a-z]/.test(ch) && !/[aeiouy]/.test(ch)) { run++; if (run > 4) { ok = false; break; } }
+        else run = 0;
+      }
+    }
+    if (ok) valid++;
   }
-  if (!meaningful(original)) {
-    setStatus("Membaca ulang dengan crop lebih rapat…");
-    original = await ocrCropText(cropTight, fill);
+  return { score: valid / toks.length, valid, total: toks.length, shortRatio: short / toks.length };
+}
+function scriptScore(text, src) {
+  const chars = (text || "").replace(/[\s\p{P}\p{S}]/gu, "");
+  if (!chars.length) return 0;
+  let pat = null;
+  if (src === "ja") pat = /[\u3040-\u30ff\u4e00-\u9fff]/;
+  else if (src === "zh") pat = /[\u4e00-\u9fff]/;
+  else if (src === "ko") pat = /[\uac00-\ud7af]/;
+  if (!pat) return 1;
+  let n = 0;
+  for (const ch of chars) if (pat.test(ch)) n++;
+  return n / chars.length;
+}
+/* Gerbang validasi ketat + skor akhir (finalScore = confidence x leksikal).
+   Sampah macam "ee aed em TIxa ~. F 4 a" gugur di sini: confidence kata
+   rendah, rasio kata valid < 0,65, mayoritas token 1-2 huruf acak. */
+function validateOCRResult(data, src) {
+  const isLatin = (TESS_LANG[src] || "eng") === "eng";
+  const alnum = (t) => (t || "").replace(/[^\p{L}\p{N}]/gu, "").length;
+  const rawLines = (data && Array.isArray(data.lines) && data.lines.length)
+    ? data.lines
+    : [{ text: (data && data.text) || "", confidence: (data && data.confidence) || 0, words: (data && data.words) || [] }];
+  const scored = rawLines.map((l) => {
+    const text = cleanOCRText(l.text || "", src);
+    return { text, conf: l.confidence || 0, words: l.words || [], aln: alnum(text), lex: isLatin ? lexScoreLatin(text).score : 1 };
+  }).filter((l) => l.aln >= 1 && l.text);
+  // Buang baris sampah (sisa garis tepi balon terbaca "- 6hOh'" / "a A")
+  // selama masih ada baris kuat lain yang membawa teks sebenarnya.
+  const strong = scored.filter((l) => l.lex >= 0.5 && l.aln >= 3);
+  let lines = scored;
+  if (strong.length && scored.length > strong.length) {
+    lines = scored.filter((l) => l.lex >= 0.5 && (l.aln > 2 || strong.includes(l)));
+    if (!lines.length) lines = strong;
   }
-  if (!meaningful(original)) throw new Error("teks tidak terbaca");
+  const text = cleanOCRText(lines.map((l) => l.text).join("\n"), src);
+  const words = lines.flatMap((l) => l.words).filter((w) => (w.text || "").length > 1);
+  const totAln = lines.reduce((s, l) => s + l.aln, 0);
+  const overall = totAln ? lines.reduce((s, l) => s + l.conf * l.aln, 0) / totAln : ((data && data.confidence) || 0);
+  const meanWordConf = words.length ? words.reduce((s, w) => s + (w.confidence || 0), 0) / words.length : overall;
+  let lexical = 1, lexInfo = null;
+  if (isLatin) { lexInfo = lexScoreLatin(text); lexical = lexInfo.score; }
+  else lexical = scriptScore(text, src);
+  let valid = true, reason = "";
+  if (alnum(text) < 2) { valid = false; reason = "kosong"; }
+  else if (meanWordConf < 60 || overall < 55) { valid = false; reason = "confidence rendah (" + Math.round(meanWordConf) + "/" + Math.round(overall) + ")"; }
+  else if (isLatin && lexInfo) {
+    if (lexInfo.score < 0.65) { valid = false; reason = "leksikal " + lexInfo.score.toFixed(2); }
+    else if (lexInfo.total >= 4 && lexInfo.shortRatio > 0.5) { valid = false; reason = "mayoritas token pendek acak"; }
+  }
+  else if (!isLatin && lexical < 0.6) { valid = false; reason = "aksara asing dominan"; }
+  return { valid, reason, text, confidence: overall, meanWordConf, lexical, finalScore: (overall / 100) * lexical };
+}
+/* Kamus instan frasa komik super-umum EN->ID: dicek SEBELUM API terjemahan,
+   jadi frasa pendek tidak pernah jadi korban transliterasi sampah. */
+const FAST_DICT = {
+  "THANK YOU": "TERIMA KASIH.", "THANKS": "TERIMA KASIH.", "THANK YOU VERY MUCH": "TERIMA KASIH BANYAK.",
+  "THANK YOU SO MUCH": "TERIMA KASIH BANYAK.", "YOU'RE WELCOME": "SAMA-SAMA.", "YES": "YA.", "NO": "TIDAK.",
+  "OK": "OKE.", "OKAY": "OKE.", "WAIT": "TUNGGU.", "WAIT A MINUTE": "TUNGGU SEBENTAR.", "WAIT A SECOND": "TUNGGU SEBENTAR.",
+  "STOP": "BERHENTI.", "HELP": "TOLONG.", "HELP ME": "TOLONG AKU.", "SORRY": "MAAF.", "I'M SORRY": "MAAFKAN AKU.",
+  "GOOD MORNING": "SELAMAT PAGI.", "GOOD AFTERNOON": "SELAMAT SIANG.", "GOOD EVENING": "SELAMAT MALAM.",
+  "GOOD NIGHT": "SELAMAT MALAM.", "GOODBYE": "SELAMAT TINGGAL.", "BYE": "DAH.", "HELLO": "HALO.", "HI": "HAI.",
+  "WHAT": "APA?", "WHY": "KENAPA?", "WHO": "SIAPA?", "WHERE": "DI MANA?", "WHEN": "KAPAN?", "HOW": "BAGAIMANA?",
+  "LET'S GO": "AYO PERGI.", "COME ON": "AYOLAH.", "HURRY": "CEPAT.", "HURRY UP": "CEPATLAH.", "SHUT UP": "DIAM.",
+  "GET OUT": "PERGI.", "GO AWAY": "PERGI SANA.", "NO WAY": "TIDAK MUNGKIN.", "REALLY": "BENARKAH?",
+  "I SEE": "BEGITU YA.", "I KNOW": "AKU TAHU.", "I DON'T KNOW": "AKU TIDAK TAHU.", "ME TOO": "AKU JUGA.",
+  "OF COURSE": "TENTU SAJA.", "NEVER MIND": "LUPAKAN SAJA.", "EXCUSE ME": "PERMISI.", "PLEASE": "TOLONG.",
+  "CONGRATULATIONS": "SELAMAT.", "WELCOME": "SELAMAT DATANG.", "GOOD LUCK": "SEMOGA BERHASIL.",
+  "BE CAREFUL": "HATI-HATI.", "WATCH OUT": "AWAS.", "LOOK": "LIHAT.", "LISTEN": "DENGAR.", "COME HERE": "KEMARI.",
+  "I'M HOME": "AKU PULANG.", "SEE YOU": "SAMPAI JUMPA.", "SEE YOU LATER": "SAMPAI JUMPA LAGI.",
+  "NO PROBLEM": "TIDAK MASALAH.", "NEVER": "TIDAK PERNAH.", "ALWAYS": "SELALU.", "MAYBE": "MUNGKIN.",
+  "IMPOSSIBLE": "MUSTAHIL.", "AMAZING": "LUAR BIASA.", "DAMN": "SUMPAH.", "DAMN IT": "SUMPAH.",
+};
+function fastDictLookup(text, src, tgt) {
+  if (src !== "en" || tgt !== "id") return null;
+  const key = (text || "").toUpperCase().replace(/\s+/g, " ").replace(/[\s.!?…]+$/g, "").trim();
+  return FAST_DICT[key] || null;
+}
+const ID_SHORT_OK = new Set(["di", "ke", "ya", "oh", "ah", "eh", "si", "ku", "mu", "ia"]);
+/* Sanity check pasca-terjemahan: tangkap transliterasi sampah (hasil == input
+   saat dinormalisasi) & terjemahan berisi >30% token 1-2 huruf tak bermakna. */
+function translationSane(original, translation, origLexical) {
+  const norm = (s) => (s || "").toUpperCase().replace(/[^A-Z0-9]/gi, "");
+  const no = norm(original), nt = norm(translation);
+  if (no && nt && no === nt) {
+    const toks = lexTokens(original);
+    if (!(origLexical >= 1 && toks.length <= 2)) return false;
+  }
+  const tt = lexTokens((translation || "").toLowerCase());
+  if (tt.length >= 4) {
+    const bad = tt.filter((t) => t.length <= 2 && !ID_SHORT_OK.has(t)).length;
+    if (bad / tt.length > 0.3) return false;
+  }
+  return true;
+}
+async function localOCRTranslate(cropTight, cropWide, fill, maskPaths, tightOrg, wideOrg) {
+  const src = $("srcLang").value, tgt = $("tgtLang").value;
+  setStatus("OCR lokal membaca teks asli di area brush… (mengevaluasi semua varian)");
+  const worker = await getTessWorker(TESS_LANG[src] || "eng");
+  const hintInvert = fill ? ((0.2126 * fill.r + 0.7152 * fill.g + 0.0722 * fill.b) / 255) < 0.45 : false;
+  const cc = contentCrop(cropTight, fill);
+  const woTight = buildWhiteoutCanvas(cropTight, maskPaths, tightOrg.x, tightOrg.y);
+  const woWide = buildWhiteoutCanvas(cropWide, maskPaths, wideOrg.x, wideOrg.y);
+  const cands = [
+    { img: woTight, psm: "6" },
+    ...(cc ? [{ img: cc, psm: "6" }] : []),
+    { img: woTight, psm: "11" },
+    { img: woWide, psm: "6" },
+    { img: cropTight, psm: "6" },
+  ];
+  if (cropTight.height <= 110) cands.push({ img: cc || woTight, psm: "7" });
+  const evaluate = async (list, invert) => {
+    let bestRes = null;
+    for (const c of list) {
+      try { await worker.setParameters({ tessedit_pageseg_mode: c.psm }); } catch (e) {}
+      let data = null;
+      try { data = (await worker.recognize(prepOCRv2(c.img, invert))).data; } catch (e) { continue; }
+      const v = validateOCRResult(data, src);
+      if (v.valid && (!bestRes || v.finalScore > bestRes.finalScore)) bestRes = v;
+      if (bestRes && bestRes.finalScore >= 0.93) break; // nyaris sempurna: hemat waktu
+    }
+    return bestRes;
+  };
+  let best = await evaluate(cands, hintInvert);
+  if (!best) best = await evaluate(cands.slice(0, 2), !hintInvert); // polaritas terbalik
+  if (!best) throw new Error("teks tidak terbaca");
+  const original = best.text;
   let translation = original;
   if (src !== tgt) {
-    setStatus("Menerjemahkan hasil OCR…");
-    // Teks Latin: sambung patahan baris jadi kalimat utuh agar mesin penerjemah
-    // membaca konteks kalimat penuh (hasil jauh lebih natural & typeset rapat).
+    // Teks Latin: sambung patahan baris jadi kalimat utuh agar konteks penuh.
     const toTranslate = src === "en" ? original.replace(/\s*\n\s*/g, " ").replace(/\s+/g, " ").trim() : original;
-    translation = await translateFreeText(toTranslate, src, tgt);
+    const dictHit = fastDictLookup(toTranslate, src, tgt);
+    if (dictHit) {
+      translation = dictHit;
+    } else {
+      setStatus("Menerjemahkan hasil OCR…");
+      translation = await translateFreeText(toTranslate, src, tgt);
+      if (!translationSane(original, translation, best.lexical)) throw new Error("hasil terjemahan tidak wajar — area dilewati");
+    }
   }
   return { original, translation };
 }
@@ -2653,7 +2823,7 @@ async function processRegion(br) {
     try { res = await geminiOCR(ocrCrop); } catch (e) { res = null; }
   }
   if (!res) {
-    try { res = await localOCRTranslate(crop, ocrCrop, fill); } catch (e) { res = null; }
+    try { res = await localOCRTranslate(crop, ocrCrop, fill, (br && br.paths) || [], { x, y }, { x: ox, y: oy }); } catch (e) { res = null; }
   }
   if (!res) return false; // teks tidak terbaca -> area dibiarkan apa adanya, tidak ditimpa karangan
   // Deteksi balon asli (mode bubble): inpaint & teks mengikuti bentuk balon,
