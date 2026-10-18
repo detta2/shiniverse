@@ -15,6 +15,9 @@ SPA All-in-One: **Portal Baca Komik** ala shinigami.asia + **MangaBrush AI Trans
 - Inspector teks (font Bangers/Comic Neue/Anime Ace/Montserrat/Inter, ukuran, warna, outline, rotasi, toggle SFX Style), daftar layer + JSON inspector `text_layers`
 - 💾 Simpan & Publish ke Chapter (WebP 0.80 + JSON) — reader portal langsung menampilkan versi flatten; Download PNG/WebP
 
+## Autonomous Mirror Agent (tab di Studio)
+Pusat kendali sync otomatis: form target (URL MangaDex atau judul), Sync Mode **Full Auto-Mirror** (metadata + 3 chapter terakhir, re-sync otomatis tiap 30 menit selama tab terbuka) atau **RAW + Auto-Translate Queue** (halaman masuk antrean Brush Studio), **Terminal Live Log** real-time, daftar target tersimpan, dan antrean translate per chapter. Sumber: **MangaDex API** resmi (tanpa key, jalan penuh di browser, chapter diprioritaskan Bahasa Indonesia) atau **Agent Worker Endpoint** — backend VPS milikmu yang membalas kontrak JSON `{series, chapters:[{number, title, pages:[{image,w,h}]}]}`.
+
 ## Database
 Hybrid: isi `SUPABASE_URL` + `SUPABASE_ANON_KEY` di ⚙️ Settings untuk mode Supabase (`@supabase/supabase-js`), kosongkan untuk fallback `localStorage` dengan struktur data identik. Tombol **📋 Copy SQL Schema** di Settings berisi DDL lengkap (`series`, `chapters`, `chapter_pages` dengan `text_layers JSONB`, `bookmarks`).
 
