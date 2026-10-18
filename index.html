@@ -2391,6 +2391,77 @@ function sampleRegionColor(x, y, w, h) {
   const r = Math.round(best.r / best.n), g = Math.round(best.g / best.n), b = Math.round(best.b / best.n);
   return { r, g, b, css: `rgb(${r},${g},${b})` };
 }
+/* Deteksi bentuk balon asli dari warna isinya: pindai baris demi baris mencari
+   rentang piksel sewarna isi balon (celah kecil bekas goresan huruf ditoleransi).
+   Hasil: kotak AMAN di dalam balon (pusat + lebar yang muat di semua baris
+   tengah + tinggi pita balon) agar teks terpasang pas di dalam balon, bukan
+   mengikuti kotak kasar sapuan kuas. Koordinat dalam ruang crop. */
+function analyzeBubble(cv, fill) {
+  try {
+    const w = cv.width, h = cv.height;
+    if (w < 30 || h < 30 || !fill) return null;
+    const data = cv.getContext("2d").getImageData(0, 0, w, h).data;
+    const tol2 = 48 * 48, GAP = 26;
+    const rows = [];
+    let best = null;
+    for (let yy = 0; yy < h; yy += 2) {
+      // Kumpulkan posisi piksel sewarna isi, rangkai jadi rentang dgn jembatan
+      // celah <= GAP (goresan huruf), lalu nilai kepadatan isinya.
+      let rowBest = { len: 0, start: 0, end: 0 };
+      let runStart = -1, runEnd = -1, runMatch = 0, gap = 0;
+      const tutupRun = () => {
+        if (runStart < 0) return;
+        const len = runEnd - runStart;
+        const cov = (runMatch * 2) / Math.max(2, len + 2);
+        if (cov >= 0.33 && len > rowBest.len) rowBest = { len, start: runStart, end: runEnd };
+      };
+      for (let xx = 0; xx < w; xx += 2) {
+        const i = (yy * w + xx) * 4;
+        const dr = data[i] - fill.r, dg = data[i + 1] - fill.g, db = data[i + 2] - fill.b;
+        if (dr * dr + dg * dg + db * db < tol2) {
+          if (runStart < 0) { runStart = xx; runMatch = 0; }
+          runEnd = xx; runMatch++; gap = 0;
+        } else if (runStart >= 0) {
+          gap += 2;
+          if (gap > GAP) { tutupRun(); runStart = -1; gap = 0; }
+        }
+      }
+      tutupRun();
+      const row = { y: yy, len: rowBest.len, cx: rowBest.start + rowBest.len / 2 };
+      rows.push(row);
+    }
+    // Penghalusan vertikal DUA LANGKAH: lebar efektif = maks lebar asli pada
+    // jendela ±6px. Baris yang memotong huruf bisa runtuh ukurannya; bentuk
+    // balon nyaris tidak berubah dalam 6px, jadi jendela ini menjembatani
+    // huruf. Wajib dua langkah — menimpa lebar sambil iterasi membuat nilai
+    // yang sudah mengembang terbaca tetangga berikutnya (inflasi berjenjang).
+    const sm = rows.map((r, ri) => {
+      let m = r.len;
+      for (let k = Math.max(0, ri - 3); k <= Math.min(rows.length - 1, ri + 3); k++) if (rows[k].len > m) m = rows[k].len;
+      return m;
+    });
+    rows.forEach((r, ri) => {
+      r.own = r.len;
+      r.len = sm[ri];
+      if (!best || r.len > best.len) best = r;
+    });
+    if (!best || best.len < w * 0.3) return null;
+    let i = rows.indexOf(best);
+    let top = i;
+    while (top > 0 && rows[top - 1].len >= best.len * 0.55) top--;
+    let bot = i;
+    while (bot < rows.length - 1 && rows[bot + 1].len >= best.len * 0.55) bot++;
+    const band = rows.slice(top, bot + 1);
+    if (band.length < 4) return null;
+    const c0 = Math.floor(band.length * 0.15), c1 = Math.ceil(band.length * 0.85);
+    let minLen = Infinity, cxSum = 0, cxN = 0;
+    band.forEach((r, k) => { if (r.own >= best.len * 0.25) { cxSum += r.cx; cxN++; } if (k >= c0 && k < c1) minLen = Math.min(minLen, r.len); });
+    const cxAvg = cxN ? cxSum / cxN : best.cx;
+    const bh = rows[bot].y - rows[top].y;
+    if (minLen < 30 || bh < 20) return null;
+    return { cx: cxAvg, cy: rows[top].y + bh / 2, w: minLen, h: bh, fullW: best.len, fullCx: best.cx };
+  } catch (e) { return null; }
+}
 function inpaint(x, y, w, h, mode, fillCss) {
   if (mode === "bubble") {
     pctx.save();
@@ -2484,9 +2555,9 @@ function showScan(rects) {
 }
 function hideScan() { $("scanLayer").innerHTML = ""; }
 
-function addTranslationText(text, original, x, y, w, h, mode, fill) {
+function addTranslationText(text, original, x, y, w, h, mode, fill, precise) {
   const isSfx = mode === "sfx";
-  const widthFactor = isSfx ? 0.98 : 0.74;
+  const widthFactor = precise ? 0.9 : isSfx ? 0.98 : 0.74;
   let fontFamily = FONT_STACKS["Anime Ace"];
   let textFill = "#161616", textStroke = "rgba(0,0,0,0)", textStrokeWidth = 0;
   if (isSfx) {
@@ -2513,19 +2584,30 @@ function addTranslationText(text, original, x, y, w, h, mode, fill) {
   tb.layerId = "mask_" + (++layerSeq);
   tb.originalText = original;
   tb.isSfx = isSfx;
+  const targetW = Math.max(48, w * widthFactor);
   let fs = Math.max(13, Math.min(72, h * (isSfx ? 0.6 : 0.52)));
   tb.set("fontSize", fs);
   canvas.add(tb);
   if (tb.initDimensions) tb.initDimensions();
   tb.setCoords();
   let guard = 0;
-  const fitTarget = isSfx ? h * 1.1 : h * 0.94;
-  while (tb.height > fitTarget && fs > 9 && guard < 40) {
+  const fitTarget = precise ? h * 0.95 : isSfx ? h * 1.1 : h * 0.94;
+  // Fabric Textbox MELEBARKAN kotaknya mengikuti kata terpanjang pada fontSize
+  // yang sedang aktif — mulai dari font besar membuat kotak permanen melebar
+  // (teks jadi keluar balon). Sematkan ulang lebar target di tiap langkah
+  // pengecilan sampai tinggi pas DAN kata terpanjang muat di lebar target.
+  while ((tb.height > fitTarget || tb.width > targetW + 1) && fs > 9 && guard < 60) {
     fs = Math.max(9, Math.floor(fs * 0.93));
     tb.set("fontSize", fs);
+    tb.set("width", targetW);
     if (tb.initDimensions) tb.initDimensions();
     tb.setCoords();
     guard++;
+  }
+  if (Math.round(tb.width) !== Math.round(targetW)) {
+    tb.set("width", targetW);
+    if (tb.initDimensions) tb.initDimensions();
+    tb.setCoords();
   }
   tb.selectable = tool === "select";
   canvas.setActiveObject(tb);
@@ -2574,14 +2656,20 @@ async function processRegion(br) {
     try { res = await localOCRTranslate(crop, ocrCrop, fill); } catch (e) { res = null; }
   }
   if (!res) return false; // teks tidak terbaca -> area dibiarkan apa adanya, tidak ditimpa karangan
+  // Deteksi balon asli (mode bubble): inpaint & teks mengikuti bentuk balon,
+  // bukan kotak sapuan kuas — supaya hasil pas di dalam balon.
+  const bub = mode === "bubble" ? analyzeBubble(crop, fill) : null;
   if (patchImg) {
     pctx.drawImage(patchImg, x, y, w, h);
+  } else if (bub) {
+    inpaint(x + bub.fullCx - bub.fullW / 2, y + bub.cy - bub.h / 2, bub.fullW, bub.h, mode, fill.css);
   } else {
     inpaint(x, y, w, h, mode, fill.css);
   }
   pageImg.dirty = true;
   canvas.requestRenderAll();
-  addTranslationText(res.translation, res.original, x, y, w, h, mode, mode === "bubble" ? fill : fill);
+  if (bub) addTranslationText(res.translation, res.original, x + bub.cx - bub.w / 2, y + bub.cy - bub.h / 2, bub.w, bub.h, mode, fill, true);
+  else addTranslationText(res.translation, res.original, x, y, w, h, mode, fill);
   syncLayersFromCanvas();
   return true;
 }
