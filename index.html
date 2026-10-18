@@ -18,6 +18,7 @@ tailwind.config = {
 <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:ital,wght@0,400;0,700;1,700&family=Inter:wght@400;600;800&family=Montserrat:wght@700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link href="https://fonts.cdnfonts.com/css/anime-ace" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   html,body{background:#0b0f19}
@@ -125,6 +126,9 @@ tailwind.config = {
             <button class="tab-btn" data-ftype="KR">Manhwa (KR)</button>
             <button class="tab-btn" data-ftype="JP">Manga (JP)</button>
             <button class="tab-btn" data-ftype="CN">Manhua (CN)</button>
+            <button class="tab-btn" data-ftype="US">Barat (US)</button>
+            <button class="tab-btn" data-ftype="ID">Indonesia (ID)</button>
+            <button class="tab-btn" data-ftype="OTHER">Lainnya</button>
           </div>
         </div>
         <div id="gridSeries" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mt-4"></div>
@@ -244,6 +248,9 @@ tailwind.config = {
                   <option value="KR">🇰🇷 Manhwa (KR)</option>
                   <option value="JP">🇯🇵 Manga (JP)</option>
                   <option value="CN">🇨🇳 Manhua (CN)</option>
+                  <option value="US">🇺🇸 Komik Barat — Marvel/DC (US)</option>
+                  <option value="ID">🇮🇩 Komik Indonesia (ID)</option>
+                  <option value="OTHER">🌐 Lainnya</option>
                 </select>
               </div>
               <div>
@@ -302,6 +309,70 @@ tailwind.config = {
             <div id="ccPending" class="flex gap-2 flex-wrap mt-3"></div>
             <button type="submit" class="mt-4 font-extrabold text-[13px] text-white grad-btn shadow-glow rounded-xl px-5 py-2.5 hover:brightness-110 transition">💾 Simpan Chapter</button>
           </form>
+
+          <!-- ===== BULK / ZIP CHAPTER UPLOADER ===== -->
+          <div class="bg-surface border border-line rounded-3xl p-5">
+            <h3 class="font-extrabold text-white text-[15px]">📦 Bulk / ZIP Chapter Uploader</h3>
+            <p class="text-[11.5px] text-mut mt-1">Upload <b class="text-slate-300">banyak gambar sekaligus</b> atau <b class="text-slate-300">1 file ZIP</b> berisi halaman — urutan otomatis mengikuti nama file (001, 002, …). Gambar dikompres ke WebP (maks. 1600px) agar hemat storage. Selesai upload, pilih: langsung terbit jadi chapter, atau kirim ke Brush Translator.</p>
+            <div class="grid sm:grid-cols-3 gap-3 mt-3">
+              <div class="sm:col-span-2">
+                <label class="text-[11px] font-bold text-mut tracking-wide">PILIH KOMIK *</label>
+                <select id="bkSeries" class="mt-1 w-full bg-base border border-line rounded-xl px-3 py-2.5 text-[13px] font-semibold"></select>
+              </div>
+              <div>
+                <label class="text-[11px] font-bold text-mut tracking-wide">NOMOR CHAPTER *</label>
+                <input id="bkNumber" type="number" min="0" step="0.5" placeholder="1" class="mt-1 w-full bg-base border border-line rounded-xl px-3.5 py-2.5 text-[13px]">
+              </div>
+              <div id="bkNewRow" class="sm:col-span-2 hidden">
+                <label class="text-[11px] font-bold text-mut tracking-wide">JUDUL SERI BARU *</label>
+                <input id="bkNewTitle" type="text" placeholder="cth: Spider-Man: Kota Neon" class="mt-1 w-full bg-base border border-line rounded-xl px-3.5 py-2.5 text-[13px]">
+              </div>
+              <div id="bkTypeRow" class="hidden">
+                <label class="text-[11px] font-bold text-mut tracking-wide">TIPE SERI BARU</label>
+                <select id="bkType" class="mt-1 w-full bg-base border border-line rounded-xl px-3 py-2.5 text-[13px] font-semibold">
+                  <option value="KR">🇰🇷 Manhwa (KR)</option>
+                  <option value="JP">🇯🇵 Manga (JP)</option>
+                  <option value="CN">🇨🇳 Manhua (CN)</option>
+                  <option value="US" selected>🇺🇸 Komik Barat — Marvel/DC (US)</option>
+                  <option value="ID">🇮🇩 Komik Indonesia (ID)</option>
+                  <option value="OTHER">🌐 Lainnya</option>
+                </select>
+              </div>
+              <div class="sm:col-span-3">
+                <label class="text-[11px] font-bold text-mut tracking-wide">JUDUL CHAPTER (opsional)</label>
+                <input id="bkTitle" type="text" placeholder="cth: Pertarungan Pertama" class="mt-1 w-full bg-base border border-line rounded-xl px-3.5 py-2.5 text-[13px]">
+              </div>
+              <div class="sm:col-span-3">
+                <label class="text-[11px] font-bold text-mut tracking-wide">FILE — GAMBAR BANYAK / ZIP</label>
+                <label for="bkFiles" class="mt-1 flex flex-col items-center justify-center gap-1 border-2 border-dashed border-line rounded-2xl px-4 py-6 text-center cursor-pointer hover:border-violet-400/60 transition">
+                  <span class="text-2xl">🗂️</span>
+                  <span class="text-[12.5px] font-bold text-slate-200">Ketuk untuk memilih file dari HP/perangkatmu</span>
+                  <span class="text-[11px] text-mut">Bisa pilih banyak gambar sekaligus (JPG/PNG/WebP) atau satu file .zip berisi gambar</span>
+                </label>
+                <input id="bkFiles" type="file" accept="image/*,.zip,application/zip" multiple class="hidden">
+              </div>
+            </div>
+            <div id="bkInfo" class="text-[11.5px] text-mut mt-3">Belum ada halaman dimuat.</div>
+            <div id="bkPreview" class="flex gap-2 flex-wrap mt-2"></div>
+            <div class="flex gap-2 mt-4 flex-wrap">
+              <button id="btnBkPublish" class="font-extrabold text-[13px] text-white grad-btn shadow-glow rounded-xl px-5 py-2.5 hover:brightness-110 transition disabled:opacity-50">🚀 Terbitkan sebagai Chapter</button>
+              <button id="btnBkBrush" class="font-extrabold text-[13px] text-white bg-[#1a2438] border border-violet-400/50 rounded-xl px-5 py-2.5 hover:bg-[#232f4a] transition disabled:opacity-50">🖌️ Terbitkan + Buka di Brush Translator</button>
+              <button id="btnBkClear" class="text-[12px] font-bold bg-[#1a2438] hover:bg-[#3a1f2e] hover:text-rose-300 border border-line rounded-xl px-3.5 py-2.5 transition">🗑 Bersihkan</button>
+            </div>
+            <p id="bkStatus" class="text-[11.5px] text-mut mt-2"></p>
+          </div>
+
+          <!-- ===== IMPORT / EXPORT JSON DATABASE ===== -->
+          <div class="bg-surface border border-line rounded-3xl p-5">
+            <h3 class="font-extrabold text-white text-[15px]">🗄️ Database JSON — Export / Import</h3>
+            <p class="text-[11.5px] text-mut mt-1">Backup seluruh isi ShiniVerse (seri, chapter, halaman + layer teks, bookmark) ke satu file JSON, atau pulihkan dari file backup. <b class="text-slate-300">API key &amp; PIN admin TIDAK ikut diekspor</b> (tersimpan terpisah). Import <b class="text-rose-300">mengganti</b> database lokal saat ini.</p>
+            <div class="flex gap-2 mt-3 flex-wrap">
+              <button id="btnDbExport" class="font-extrabold text-[13px] text-white grad-btn shadow-glow rounded-xl px-5 py-2.5 hover:brightness-110 transition">⬇️ Export JSON</button>
+              <button id="btnDbImport" class="font-extrabold text-[13px] text-white bg-[#1a2438] border border-line rounded-xl px-5 py-2.5 hover:bg-[#232f4a] transition">⬆️ Import JSON…</button>
+              <input id="dbImportFile" type="file" accept=".json,application/json" class="hidden">
+            </div>
+            <p id="dbInfo" class="text-[11.5px] text-mut mt-2"></p>
+          </div>
         </div>
 
         <div class="bg-surface border border-line rounded-3xl p-5">
@@ -552,6 +623,9 @@ tailwind.config = {
                       <option value="KR">🇰🇷 Manhwa (KR)</option>
                       <option value="JP">🇯🇵 Manga (JP)</option>
                       <option value="CN">🇨🇳 Manhua (CN)</option>
+                      <option value="US">🇺🇸 Komik Barat — Marvel/DC (US)</option>
+                      <option value="ID">🇮🇩 Komik Indonesia (ID)</option>
+                      <option value="OTHER">🌐 Lainnya</option>
                     </select>
                   </div>
                   <div class="md:col-span-2">
@@ -740,6 +814,9 @@ const TYPE_META = {
   KR: { label: "Manhwa", flag: "🇰🇷", cls: "bg-sky-500/20 text-sky-300 border-sky-400/40" },
   JP: { label: "Manga", flag: "🇯🇵", cls: "bg-rose-500/20 text-rose-300 border-rose-400/40" },
   CN: { label: "Manhua", flag: "🇨🇳", cls: "bg-amber-500/20 text-amber-300 border-amber-400/40" },
+  US: { label: "Komik Barat", flag: "🇺🇸", cls: "bg-indigo-500/20 text-indigo-300 border-indigo-400/40" },
+  ID: { label: "Komik Indonesia", flag: "🇮🇩", cls: "bg-red-500/20 text-red-300 border-red-400/40" },
+  OTHER: { label: "Lainnya", flag: "🌐", cls: "bg-slate-500/20 text-slate-300 border-slate-400/40" },
 };
 const stars = (r) => "★★★★★".slice(0, Math.round(r)) + "☆☆☆☆☆".slice(0, 5 - Math.round(r));
 
@@ -1041,7 +1118,7 @@ function showView(name) {
 
 /* ---------------- HOME ---------------- */
 function heroSlideHTML(s, rank) {
-  const tm = TYPE_META[s.type];
+  const tm = (TYPE_META[s.type] || TYPE_META.OTHER);
   return `<div class="hero-slide ${rank === 0 ? "on" : ""}" data-hero="${rank}">
     <img src="${s.cover}" class="absolute inset-0 w-full h-full object-cover opacity-40 blur-[2px] scale-110" alt="">
     <div class="absolute inset-0" style="background:linear-gradient(90deg, rgba(11,15,25,.96) 30%, rgba(11,15,25,.55) 65%, rgba(11,15,25,.25))"></div>
@@ -1083,7 +1160,7 @@ function setHero(i) {
 }
 async function chaptersOf(seriesId) { return DB.listChapters(seriesId); }
 function seriesCardHTML(s, lastChs) {
-  const tm = TYPE_META[s.type];
+  const tm = (TYPE_META[s.type] || TYPE_META.OTHER);
   const hot = s.views >= 2000000 ? '<span class="chip bg-crim text-white shadow-glow">HOT</span>' : (lastChs[0] && lastChs[0].hoursAgo < 24 ? '<span class="chip bg-vio text-white shadow-glowv">UP</span>' : "");
   const chBtns = lastChs.slice(0, 3).map((c) => `
     <button class="flex items-center justify-between w-full text-left bg-base/70 hover:bg-crim/15 border border-line hover:border-crim/50 rounded-lg px-2.5 py-1.5 transition" onclick="event.stopPropagation(); openReader('${s.id}','${c.id}')">
@@ -1121,7 +1198,7 @@ async function renderHome() {
       <img src="${s.cover}" class="w-11 h-[3.7rem] object-cover rounded-lg border border-line flex-none" alt="">
       <span class="min-w-0">
         <span class="block font-bold text-white text-[12.5px] leading-snug line-clamp-2">${esc(s.title)}</span>
-        <span class="block text-[10.5px] text-mut font-semibold mt-0.5">${TYPE_META[s.type].flag} ${TYPE_META[s.type].label} • ★ ${s.rating.toFixed(1)} • 👁 ${fmtViews(s.views)}</span>
+        <span class="block text-[10.5px] text-mut font-semibold mt-0.5">${(TYPE_META[s.type] || TYPE_META.OTHER).flag} ${(TYPE_META[s.type] || TYPE_META.OTHER).label} • ★ ${s.rating.toFixed(1)} • 👁 ${fmtViews(s.views)}</span>
       </span>
     </button>`).join("");
 }
@@ -1131,7 +1208,7 @@ async function openSeries(id) {
   curSeries = ALL_SERIES.find((s) => s.id === id);
   if (!curSeries) return;
   curChapters = await chaptersOf(id);
-  const s = curSeries, tm = TYPE_META[s.type];
+  const s = curSeries, tm = (TYPE_META[s.type] || TYPE_META.OTHER);
   $("sdCover").src = s.cover;
   $("sdBadges").innerHTML = `<span class="chip border ${tm.cls}">${tm.flag} ${tm.label} (${s.type})</span><span class="chip ${s.status === "Completed" ? "bg-emerald-500/15 text-emerald-300 border border-emerald-400/40" : "bg-sky-500/15 text-sky-300 border border-sky-400/40"}">${s.status}</span>`;
   $("sdTitle").textContent = s.title;
@@ -1306,7 +1383,7 @@ searchInput.addEventListener("input", () => {
       <img src="${s.cover}" class="w-10 h-[3.4rem] object-cover rounded-lg border border-line flex-none" alt="">
       <span class="min-w-0">
         <span class="block font-bold text-white text-[13px] truncate">${esc(s.title)}</span>
-        <span class="block text-[11px] text-mut font-semibold">${TYPE_META[s.type].flag} ${TYPE_META[s.type].label} • ★ ${s.rating.toFixed(1)} • ${s.status}</span>
+        <span class="block text-[11px] text-mut font-semibold">${(TYPE_META[s.type] || TYPE_META.OTHER).flag} ${(TYPE_META[s.type] || TYPE_META.OTHER).label} • ★ ${s.rating.toFixed(1)} • ${s.status}</span>
       </span>
     </button>`).join("") : '<p class="text-mut text-[12.5px] p-4 text-center">Tidak ditemukan.</p>';
   searchDrop.classList.remove("hidden");
@@ -1341,7 +1418,7 @@ function fillSeriesSelect() {
   const sel = $("ccSeries");
   if (!sel) return;
   const cur = sel.value;
-  sel.innerHTML = ALL_SERIES.map((s) => `<option value="${s.id}">${esc(s.title)} (${TYPE_META[s.type].label})</option>`).join("");
+  sel.innerHTML = ALL_SERIES.map((s) => `<option value="${s.id}">${esc(s.title)} (${(TYPE_META[s.type] || TYPE_META.OTHER).label})</option>`).join("");
   if (cur && ALL_SERIES.some((s) => s.id === cur)) sel.value = cur;
 }
 
@@ -1361,6 +1438,9 @@ const TYPE_STYLE = {
   KR: { c1: "#7c3aed", c2: "#e11d48", glyph: "검", sub: "MANHWA • NEW" },
   JP: { c1: "#0ea5e9", c2: "#1e3a8a", glyph: "剣", sub: "MANGA • NEW" },
   CN: { c1: "#b45309", c2: "#7c2d12", glyph: "天", sub: "MANHUA • NEW" },
+  US: { c1: "#1d4ed8", c2: "#dc2626", glyph: "A", sub: "COMICS • NEW" },
+  ID: { c1: "#dc2626", c2: "#7f1d1d", glyph: "K", sub: "KOMIK LOKAL • NEW" },
+  OTHER: { c1: "#475569", c2: "#0f172a", glyph: "✦", sub: "SHINIVERSE • NEW" },
 };
 $("formSeries").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -1422,8 +1502,167 @@ $("formChapter").addEventListener("submit", async (e) => {
   toast("✅ Chapter " + ch.number + " ditambahkan dengan " + "halaman-halamannya.");
 });
 
+/* ================= BULK / ZIP CHAPTER UPLOADER ================= */
+let bulkPages = []; // {image, w, h, name}
+function fillBulkSeries() {
+  const sel = $("bkSeries");
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = `<option value="__new__">➕ Buat seri baru…</option>` + ALL_SERIES.map((s) => `<option value="${s.id}">${esc(s.title)} (${(TYPE_META[s.type] || TYPE_META.OTHER).label})</option>`).join("");
+  if (cur && [...sel.options].some((o) => o.value === cur)) sel.value = cur;
+  else if (ALL_SERIES.length) sel.value = ALL_SERIES[0].id;
+  bkSeriesChanged();
+}
+function bkSeriesChanged() {
+  const sel = $("bkSeries");
+  if (!sel) return;
+  const isNew = sel.value === "__new__";
+  $("bkNewRow").classList.toggle("hidden", !isNew);
+  $("bkTypeRow").classList.toggle("hidden", !isNew);
+  if (!isNew && sel.value) {
+    const nums = LDB.chapters.filter((c) => c.seriesId === sel.value).map((c) => c.number);
+    $("bkNumber").value = nums.length ? Math.max(...nums) + 1 : 1;
+  } else if (!$("bkNumber").value) $("bkNumber").value = 1;
+}
+function renderBulk() {
+  const totalKB = bulkPages.reduce((a, p) => a + (p.image ? p.image.length : 0), 0) / 1024;
+  $("bkInfo").innerHTML = bulkPages.length
+    ? `<b class="text-slate-200">${bulkPages.length} halaman</b> siap — total ±${totalKB >= 1024 ? (totalKB / 1024).toFixed(1) + " MB" : Math.round(totalKB) + " KB"} (urutan mengikuti nama file).` + (totalKB > 3800 ? ` <span class="text-amber-300 font-bold">⚠️ Mendekati batas penyimpanan lokal (±5 MB) — pertimbangkan membagi jadi 2 chapter.</span>` : "")
+    : "Belum ada halaman dimuat.";
+  $("bkPreview").innerHTML = bulkPages.map((p, i) => `
+    <span class="relative inline-block">
+      <img src="${p.image}" class="w-12 h-16 object-cover rounded-md border border-line" alt="">
+      <button type="button" class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-crim text-white text-[10px] font-bold" onclick="bulkPages.splice(${i},1); renderBulk();">✕</button>
+      <span class="absolute bottom-0 left-0 text-[8px] font-bold bg-black/60 text-white rounded-tr px-1">${i + 1}</span>
+    </span>`).join("");
+  $("btnBkPublish").disabled = !bulkPages.length;
+  $("btnBkBrush").disabled = !bulkPages.length;
+}
+function blobToPage(blob, name) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.round(img.naturalWidth * scale), h = Math.round(img.naturalHeight * scale);
+      const cv = document.createElement("canvas");
+      cv.width = w; cv.height = h;
+      cv.getContext("2d").drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      resolve({ image: cv.toDataURL("image/webp", 0.82), w, h, name });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+async function bulkPublish() {
+  let seriesId = $("bkSeries").value;
+  const number = parseFloat($("bkNumber").value);
+  if (isNaN(number)) { toast("Isi nomor chapter."); return null; }
+  if (!bulkPages.length) { toast("Muat gambar dulu."); return null; }
+  if (seriesId === "__new__") {
+    const t = $("bkNewTitle").value.trim();
+    if (!t) { toast("Isi judul seri baru."); return null; }
+    const tp = $("bkType").value;
+    const st = TYPE_STYLE[tp] || TYPE_STYLE.OTHER;
+    const s = await DB.createSeries({ title: t, alt: "", author: "", type: tp, genres: [], synopsis: "", cover: makeCover(t, st.sub, st.c1, st.c2, st.glyph), status: "Ongoing", rating: 0, views: 0, hoursAgo: 0 });
+    seriesId = s.id;
+  }
+  if (LDB.chapters.some((c) => c.seriesId === seriesId && c.number === number)) { toast("Chapter " + number + " untuk seri ini sudah ada — ganti nomornya."); return null; }
+  const ch = await DB.createChapter({ seriesId, number, title: $("bkTitle").value.trim(), hoursAgo: 0 }, bulkPages.map((p) => ({ image: p.image, w: p.w, h: p.h })));
+  const count = bulkPages.length;
+  bulkPages = [];
+  renderBulk();
+  $("bkTitle").value = "";
+  await refreshAll();
+  await renderCms();
+  return { seriesId, ch, count };
+}
+
+/* ================= IMPORT / EXPORT JSON DATABASE ================= */
+function dbCounts() { return { series: LDB.series.length, chapters: LDB.chapters.length, pages: LDB.pages.length, bookmarks: (LDB.bookmarks || []).length }; }
+function renderDbInfo() {
+  const el = $("dbInfo");
+  if (!el || !LDB) return;
+  const c = dbCounts();
+  el.textContent = `Isi database saat ini: ${c.series} seri • ${c.chapters} chapter • ${c.pages} halaman • ${c.bookmarks} bookmark.`;
+}
+
+$("bkSeries").addEventListener("change", bkSeriesChanged);
+$("bkFiles").addEventListener("change", async (e) => {
+  const files = [...(e.target.files || [])];
+  e.target.value = "";
+  if (!files.length) return;
+  const items = [];
+  for (const f of files) {
+    if (/\.zip$/i.test(f.name) || f.type === "application/zip") {
+      if (typeof JSZip === "undefined") { toast("Library ZIP gagal dimuat — cek koneksi internet lalu refresh."); return; }
+      try {
+        const zip = await JSZip.loadAsync(f);
+        const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir && /\.(jpe?g|png|webp|gif|avif)$/i.test(n));
+        names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+        for (const n of names) items.push({ blob: await zip.files[n].async("blob"), name: n.split("/").pop() });
+      } catch (err) { toast("File ZIP tidak bisa dibaca: " + f.name); }
+    } else if (/^image\//.test(f.type)) {
+      items.push({ blob: f, name: f.name });
+    }
+  }
+  items.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  if (!items.length) { toast("Tidak ada gambar yang bisa dibaca dari file itu."); return; }
+  $("bkStatus").textContent = `Memproses ${items.length} gambar…`;
+  let ok = 0;
+  for (const it of items) {
+    const p = await blobToPage(it.blob, it.name);
+    if (p) { bulkPages.push(p); ok++; }
+  }
+  renderBulk();
+  $("bkStatus").textContent = ok ? `${ok} halaman dimuat & dikompres ke WebP.` : "Semua gambar gagal dibaca.";
+});
+$("btnBkClear").addEventListener("click", () => { bulkPages = []; renderBulk(); $("bkStatus").textContent = ""; });
+$("btnBkPublish").addEventListener("click", async () => {
+  const r = await bulkPublish();
+  if (r) { $("bkStatus").textContent = `✅ Chapter ${r.ch.number} (${r.count} halaman) terbit & sudah tampil di portal.`; toast("🚀 Chapter terbit!"); }
+});
+$("btnBkBrush").addEventListener("click", async () => {
+  const r = await bulkPublish();
+  if (r) { toast("🖌️ Chapter terbit — membuka halaman 1 di Brush Translator…"); openStudioPage(r.seriesId, r.ch.id, 0); }
+});
+$("btnDbExport").addEventListener("click", () => {
+  const payload = { app: "ShiniVerse", kind: "database-backup", version: 1, exportedAt: new Date().toISOString(), counts: dbCounts(), data: { series: LDB.series, chapters: LDB.chapters, pages: LDB.pages, bookmarks: LDB.bookmarks || [] } };
+  const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+  const a = document.createElement("a");
+  const ts = new Date(); const pad = (n) => String(n).padStart(2, "0");
+  a.href = URL.createObjectURL(blob);
+  a.download = `shiniverse-db-${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  renderDbInfo();
+  toast("⬇️ Backup JSON diunduh.");
+});
+$("btnDbImport").addEventListener("click", () => $("dbImportFile").click());
+$("dbImportFile").addEventListener("change", async (e) => {
+  const f = (e.target.files || [])[0];
+  e.target.value = "";
+  if (!f) return;
+  let parsed;
+  try { parsed = JSON.parse(await f.text()); } catch (err) { toast("File bukan JSON yang valid."); return; }
+  const d = parsed && parsed.data ? parsed.data : parsed;
+  if (!d || !Array.isArray(d.series) || !Array.isArray(d.chapters)) { toast("Struktur file tidak cocok — harus berisi data.series & data.chapters."); return; }
+  const ok = confirm(`IMPORT DATABASE\n\nFile berisi: ${d.series.length} seri • ${d.chapters.length} chapter • ${(d.pages || []).length} halaman.\n\n⚠️ Seluruh database lokal saat ini akan DIGANTI dengan isi file ini. Lanjutkan?`);
+  if (!ok) return;
+  LDB = { series: d.series, chapters: d.chapters, pages: d.pages || [], bookmarks: d.bookmarks || [] };
+  persistLocal();
+  await refreshAll();
+  await renderCms();
+  renderDbInfo();
+  toast("⬆️ Database berhasil diimpor.");
+});
+renderBulk();
+
 /* ---- Daftar CMS ---- */
 async function renderCms() {
+  fillBulkSeries();
+  renderDbInfo();
   const wrap = $("cmsList");
   const blocks = [];
   for (const s of ALL_SERIES) {
@@ -1455,7 +1694,7 @@ async function renderCms() {
           <img src="${s.cover}" class="w-10 h-[3.4rem] object-cover rounded-lg border border-line" alt="">
           <div class="min-w-0">
             <div class="font-extrabold text-white text-[13.5px] truncate">${esc(s.title)}</div>
-            <div class="text-[10.5px] text-mut font-semibold">${TYPE_META[s.type].flag} ${TYPE_META[s.type].label} • ${chs.length} chapter • 👁 ${fmtViews(s.views)}</div>
+            <div class="text-[10.5px] text-mut font-semibold">${(TYPE_META[s.type] || TYPE_META.OTHER).flag} ${(TYPE_META[s.type] || TYPE_META.OTHER).label} • ${chs.length} chapter • 👁 ${fmtViews(s.views)}</div>
           </div>
         </div>
         <div class="flex flex-col gap-2 mt-2.5">${chRows.join("") || '<p class="text-[11.5px] text-mut">Belum ada chapter.</p>'}</div>
@@ -2459,7 +2698,11 @@ async function mirrorViaWorker(target, mode) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action: "sync", target_url: target, sync_mode: mode }),
   });
-  if (!res.ok) throw new Error("Worker membalas HTTP " + res.status);
+  if (!res.ok) {
+    let detail = "";
+    try { const ej = await res.json(); if (ej && ej.error) detail = " — " + ej.error; } catch (e) {}
+    throw new Error("Worker membalas HTTP " + res.status + detail);
+  }
   const j = await res.json();
   if (!j.series || !Array.isArray(j.chapters)) throw new Error("Balasan worker tidak sesuai kontrak {series, chapters[]}.");
   mlog(`[WORKER] Payload diterima: “${esc(j.series.title || "?")}” — ${j.chapters.length} chapter.`, "ok");
