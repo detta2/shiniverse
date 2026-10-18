@@ -2163,8 +2163,8 @@ async function getTessWorker(langKey) {
   tessLangKey = langKey;
   return tessWorker;
 }
-function prepCropForOCR(crop) {
-  const scale = Math.max(1, Math.min(3, 320 / Math.max(crop.width, crop.height)));
+function prepCropForOCR(crop, invertHint) {
+  const scale = Math.max(1, Math.min(4, Math.max(420 / Math.max(crop.width, crop.height), 300 / Math.min(crop.width, crop.height))));
   const tmp = document.createElement("canvas");
   tmp.width = Math.round(crop.width * scale);
   tmp.height = Math.round(crop.height * scale);
@@ -2178,7 +2178,7 @@ function prepCropForOCR(crop) {
     let sum = 0;
     for (let i = 0; i < d.length; i += 16) sum += (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
     const mean = sum / (d.length / 16);
-    const invert = mean < 110;
+    const invert = (invertHint === true || invertHint === false) ? invertHint : mean < 110;
     for (let i = 0; i < d.length; i += 4) {
       let g = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
       if (invert) g = 255 - g;
@@ -2199,15 +2199,33 @@ function prepCropForOCR(crop) {
   octx.drawImage(tmp, B, B);
   return out;
 }
-async function ocrCropText(crop) {
+async function ocrCropText(crop, fill) {
   const src = $("srcLang").value;
   const langKey = TESS_LANG[src] || "eng";
   const worker = await getTessWorker(langKey);
   try { await worker.setParameters({ tessedit_pageseg_mode: "6" }); } catch (e) {}
-  const { data } = await worker.recognize(prepCropForOCR(crop));
-  let t = (data && data.text ? data.text : "").replace(/\r/g, "").trim();
-  if (src === "ja" || src === "zh" || src === "ko") t = t.replace(/\s+(?=[\u3000-\u9fff\uac00-\ud7af])/g, "").replace(/(?<=[\u3000-\u9fff\uac00-\ud7af])\s+/g, "");
-  return t.replace(/[ \t]+/g, " ").replace(/\n{2,}/g, "\n").trim();
+  const clean = (raw) => {
+    let t = (raw || "").replace(/\r/g, "").trim();
+    if (src === "ja" || src === "zh" || src === "ko") t = t.replace(/\s+(?=[\u3000-\u9fff\uac00-\ud7af])/g, "").replace(/(?<=[\u3000-\u9fff\uac00-\ud7af])\s+/g, "");
+    t = t.replace(/[ \t]+/g, " ").replace(/\n{2,}/g, "\n").trim();
+    // Buang baris sampah (sisa garis tepi balon terbaca sbg "- —s", "~~ _", dsb):
+    // baris dipertahankan hanya bila punya >=2 huruf/angka & rasio hurufnya layak.
+    const aln = (s) => (s.match(/[\p{L}\p{N}]/gu) || []).length;
+    const lines = t.split("\n");
+    const kept = lines.filter((ln) => { const a = aln(ln); return a >= 2 && a / Math.max(1, ln.trim().length) >= 0.3; });
+    if (kept.length && kept.join("").length >= 2) t = kept.join("\n");
+    return t;
+  };
+  const alnum = (t) => t.replace(/[^\p{L}\p{N}]/gu, "").length;
+  // Keputusan hitam-putih dari warna ISI balon (bukan rata-rata crop yang bisa
+  // tertipu latar gelap di sekeliling balon kecil). Gagal -> coba kebalikannya.
+  const hint = fill ? ((0.2126 * fill.r + 0.7152 * fill.g + 0.0722 * fill.b) / 255) < 0.45 : null;
+  let txt = clean(((await worker.recognize(prepCropForOCR(crop, hint))).data || {}).text);
+  if (alnum(txt) < 2 && hint !== null) {
+    const alt = clean(((await worker.recognize(prepCropForOCR(crop, !hint))).data || {}).text);
+    if (alnum(alt) > alnum(txt)) txt = alt;
+  }
+  return txt;
 }
 async function translateGoogleGtx(text, src, tgt) {
   const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=" + (GT_SL[src] || "auto") + "&tl=" + (GT_SL[tgt] || "id") + "&dt=t&q=" + encodeURIComponent(text.slice(0, 900));
@@ -2232,15 +2250,71 @@ async function translateFreeText(text, src, tgt) {
   try { return await translateGoogleGtx(text, src, tgt); }
   catch (e) { return await translateMyMemory(text, src, tgt); }
 }
-async function localOCRTranslate(crop) {
+/* Potong gambar mengikuti wilayah warna isi balon: bidang gelap di sekeliling
+   balon hilang dari bingkai sehingga teks memenuhi gambar (rezim yang bisa
+   dibaca Tesseract). Mengembalikan null bila tidak ditemukan/tidak membantu. */
+function contentCrop(srcCanvas, fill) {
+  if (!fill) return null;
+  try {
+    const w = srcCanvas.width, h = srcCanvas.height;
+    const data = srcCanvas.getContext("2d").getImageData(0, 0, w, h).data;
+    const tol2 = 46 * 46;
+    let minX = w, minY = h, maxX = -1, maxY = -1, hits = 0;
+    for (let y = 0; y < h; y += 2) {
+      for (let x = 0; x < w; x += 2) {
+        const i = (y * w + x) * 4;
+        const dr = data[i] - fill.r, dg = data[i + 1] - fill.g, db = data[i + 2] - fill.b;
+        if (dr * dr + dg * dg + db * db < tol2) {
+          hits++;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0 || hits < 40) return null;
+    // Potong KE DALAM melewati garis tepi balon: garis hitam tertutup yang
+    // mengelilingi teks membuat Tesseract mengira area ini gambar, bukan teks
+    // (terbukti: balon sebaris selalu gagal dibaca selama garis tepinya utuh).
+    const ix = Math.max(3, Math.round((maxX - minX) * 0.035)), iy = Math.max(2, Math.round((maxY - minY) * 0.035));
+    if (maxX - minX - ix * 2 >= 24 && maxY - minY - iy * 2 >= 16) { minX += ix; maxX -= ix; minY += iy; maxY -= iy; }
+    const cw = maxX - minX + 1, ch = maxY - minY + 1;
+    if (cw < 24 || ch < 16) return null;
+    if (cw > w * 0.97 && ch > h * 0.97) return null;
+    const out = document.createElement("canvas");
+    out.width = cw; out.height = ch;
+    out.getContext("2d").drawImage(srcCanvas, minX, minY, cw, ch, 0, 0, cw, ch);
+    return out;
+  } catch (e) { return null; }
+}
+async function localOCRTranslate(cropTight, cropWide, fill) {
   const src = $("srcLang").value, tgt = $("tgtLang").value;
   setStatus("OCR lokal membaca teks asli di area brush…");
-  const original = await ocrCropText(crop);
-  if (!original || original.replace(/[^\p{L}\p{N}]/gu, "").length < 2) throw new Error("teks tidak terbaca");
+  const alnum = (t) => (t || "").replace(/[^\p{L}\p{N}]/gu, "").length;
+  // "Bermakna": bukan sekadar 2 huruf acak sisa garis tepi ("x 2") — untuk teks
+  // Latin wajib ada vokal atau >=4 huruf/angka. CJK: cukup >=2 karakter.
+  const meaningful = (t) => { const a = alnum(t); if (a < 2) return false; if (src !== "en") return true; return a >= 4 || /[aeiou]/i.test(t || ""); };
+  let original = await ocrCropText(cropWide, fill);
+  if (!meaningful(original)) {
+    const cc = contentCrop(cropTight, fill);
+    if (cc) {
+      setStatus("Membaca ulang mengikuti bentuk balon…");
+      original = await ocrCropText(cc, fill);
+    }
+  }
+  if (!meaningful(original)) {
+    setStatus("Membaca ulang dengan crop lebih rapat…");
+    original = await ocrCropText(cropTight, fill);
+  }
+  if (!meaningful(original)) throw new Error("teks tidak terbaca");
   let translation = original;
   if (src !== tgt) {
     setStatus("Menerjemahkan hasil OCR…");
-    translation = await translateFreeText(original, src, tgt);
+    // Teks Latin: sambung patahan baris jadi kalimat utuh agar mesin penerjemah
+    // membaca konteks kalimat penuh (hasil jauh lebih natural & typeset rapat).
+    const toTranslate = src === "en" ? original.replace(/\s*\n\s*/g, " ").replace(/\s+/g, " ").trim() : original;
+    translation = await translateFreeText(toTranslate, src, tgt);
   }
   return { original, translation };
 }
@@ -2412,7 +2486,7 @@ function hideScan() { $("scanLayer").innerHTML = ""; }
 
 function addTranslationText(text, original, x, y, w, h, mode, fill) {
   const isSfx = mode === "sfx";
-  const widthFactor = isSfx ? 0.98 : 0.86;
+  const widthFactor = isSfx ? 0.98 : 0.74;
   let fontFamily = FONT_STACKS["Anime Ace"];
   let textFill = "#161616", textStroke = "rgba(0,0,0,0)", textStrokeWidth = 0;
   if (isSfx) {
@@ -2445,9 +2519,9 @@ function addTranslationText(text, original, x, y, w, h, mode, fill) {
   if (tb.initDimensions) tb.initDimensions();
   tb.setCoords();
   let guard = 0;
-  const fitTarget = isSfx ? h * 1.1 : h * 0.98;
-  while (tb.height > fitTarget && fs > 11 && guard < 30) {
-    fs -= 2;
+  const fitTarget = isSfx ? h * 1.1 : h * 0.94;
+  while (tb.height > fitTarget && fs > 9 && guard < 40) {
+    fs = Math.max(9, Math.floor(fs * 0.93));
     tb.set("fontSize", fs);
     if (tb.initDimensions) tb.initDimensions();
     tb.setCoords();
@@ -2497,7 +2571,7 @@ async function processRegion(br) {
     try { res = await geminiOCR(ocrCrop); } catch (e) { res = null; }
   }
   if (!res) {
-    try { res = await localOCRTranslate(ocrCrop); } catch (e) { res = null; }
+    try { res = await localOCRTranslate(crop, ocrCrop, fill); } catch (e) { res = null; }
   }
   if (!res) return false; // teks tidak terbaca -> area dibiarkan apa adanya, tidak ditimpa karangan
   if (patchImg) {
