@@ -1826,28 +1826,43 @@ function initStudioOnce() {
     e.preventDefault(); e.stopPropagation();
   });
   let panning = false, lastPos = { x: 0, y: 0 };
+  const evPos = (e) => {
+    if (e && typeof e.clientX === "number") return { x: e.clientX, y: e.clientY };
+    const t = (e && e.touches && e.touches[0]) || (e && e.changedTouches && e.changedTouches[0]);
+    return t ? { x: t.clientX, y: t.clientY } : null;
+  };
   canvas.on("mouse:down", (opt) => {
     if (tool === "eraser" && opt.target && opt.target.isMask) { removeMask(opt.target); return; }
-    if (tool === "select" && !opt.target) { panning = true; lastPos = { x: opt.e.clientX, y: opt.e.clientY }; canvas.defaultCursor = "grabbing"; }
+    if (tool === "select" && !opt.target) {
+      const p = evPos(opt.e);
+      if (p) { panning = true; lastPos = p; canvas.defaultCursor = "grabbing"; }
+    }
   });
   canvas.on("mouse:move", (opt) => {
     const pt = canvas.getPointer(opt.e);
     $("coordInfo").textContent = `x:${Math.round(pt.x)} y:${Math.round(pt.y)}`;
     if (panning) {
+      const p = evPos(opt.e);
+      if (!p) return;
       const vpt = canvas.viewportTransform;
-      vpt[4] += opt.e.clientX - lastPos.x;
-      vpt[5] += opt.e.clientY - lastPos.y;
+      vpt[4] += p.x - lastPos.x;
+      vpt[5] += p.y - lastPos.y;
+      if (!isFinite(vpt[4]) || !isFinite(vpt[5])) { panning = false; fitView(); return; }
+      const z = vpt[0] || 1, keep = 90;
+      vpt[4] = Math.max(-naturalW * z + keep, Math.min(canvas.width - keep, vpt[4]));
+      vpt[5] = Math.max(-naturalH * z + keep, Math.min(canvas.height - keep, vpt[5]));
       canvas.requestRenderAll();
-      lastPos = { x: opt.e.clientX, y: opt.e.clientY };
+      lastPos = p;
     }
   });
+  canvas.on("mouse:up", () => { panning = false; });
   window.addEventListener("mouseup", () => { panning = false; if (tool === "select" && canvas) canvas.defaultCursor = "default"; });
   canvas.on("selection:created", showProps);
   canvas.on("selection:updated", showProps);
   canvas.on("selection:cleared", () => $("propPanel").classList.add("hidden"));
   canvas.on("object:modified", (e) => { if (e.target && e.target.isTranslation) { syncLayersFromCanvas(); } });
   window.addEventListener("resize", () => {
-    if (!canvas || $("panelBrush").classList.contains("hidden")) return;
+    if (!canvas || panning || $("panelBrush").classList.contains("hidden")) return;
     canvas.setDimensions({ width: wrap.clientWidth, height: wrap.clientHeight });
     if (pageImg) fitView(); else canvas.requestRenderAll();
   });
