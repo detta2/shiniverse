@@ -536,6 +536,49 @@ tailwind.config = {
               <p class="text-[10.5px] text-mut leading-relaxed pt-1.5">Kontrak Worker: agent mengirim POST JSON <span class="font-mono text-slate-300">{action:"sync", target_url, sync_mode}</span> dan menerima balasan <span class="font-mono text-slate-300">{series:{…}, chapters:[{number, title, pages:[{image, w, h}]}]}</span> untuk disimpan ke database ShiniVerse.</p>
               <button id="btnRunMirror" class="mt-4 w-full font-extrabold text-[14px] text-white grad-btn shadow-glow rounded-xl py-3 hover:brightness-110 transition active:translate-y-px disabled:opacity-50">🚀 Jalankan Agent &amp; Sync Sekarang</button>
               <p id="mirStatus" class="text-[11px] text-mut text-center mt-2">Agent siap. Sumber resmi yang didukung: MangaDex API &amp; Worker Endpoint milikmu.</p>
+
+              <!-- Form Konfirmasi Cepat (anti-gagal): judul tidak ada di MangaDex -->
+              <div id="mirQuick" class="hidden mt-4 rounded-2xl border border-amber-400/40 bg-amber-400/5 p-4 text-left">
+                <h3 class="font-bold text-[14px] mb-1">📝 Form Konfirmasi Cepat — seri tidak ditemukan di MangaDex</h3>
+                <p class="text-mut text-[12px] mb-3">Judul sudah terisi otomatis dari link/judul yang kamu tempel. Lengkapi seperlunya (boleh seadanya) lalu simpan — data ini kamu isi sendiri, bukan hasil ambilan dari situs mana pun. Chapter bisa ditambah belakangan lewat tab 📚 CMS Komik.</p>
+                <div class="grid md:grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-[11px] font-bold tracking-wide text-mut mb-1.5">JUDUL *</label>
+                    <input id="qTitle" type="text" class="w-full bg-base border border-line rounded-xl px-3.5 py-2.5 text-[13px]">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] font-bold tracking-wide text-mut mb-1.5">TIPE</label>
+                    <select id="qType" class="w-full bg-base border border-line rounded-xl px-3.5 py-2.5 text-[13px]">
+                      <option value="KR">🇰🇷 Manhwa (KR)</option>
+                      <option value="JP">🇯🇵 Manga (JP)</option>
+                      <option value="CN">🇨🇳 Manhua (CN)</option>
+                    </select>
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="block text-[11px] font-bold tracking-wide text-mut mb-1.5">URL COVER (OPSIONAL — KOSONG = COVER INISIAL OTOMATIS)</label>
+                    <input id="qCover" type="url" placeholder="https://…" class="w-full bg-base border border-line rounded-xl px-3.5 py-2.5 text-[13px]">
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="block text-[11px] font-bold tracking-wide text-mut mb-1.5">SINOPSIS (OPSIONAL)</label>
+                    <textarea id="qSynopsis" rows="2" class="w-full bg-base border border-line rounded-xl px-3.5 py-2.5 text-[13px]"></textarea>
+                  </div>
+                  <div>
+                    <label class="block text-[11px] font-bold tracking-wide text-mut mb-1.5">GENRE (PISAHKAN KOMA, OPSIONAL)</label>
+                    <input id="qGenres" type="text" placeholder="Action, Fantasy" class="w-full bg-base border border-line rounded-xl px-3.5 py-2.5 text-[13px]">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] font-bold tracking-wide text-mut mb-1.5">STATUS</label>
+                    <select id="qStatus" class="w-full bg-base border border-line rounded-xl px-3.5 py-2.5 text-[13px]">
+                      <option>Ongoing</option>
+                      <option>Completed</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="flex gap-2 mt-3">
+                  <button id="btnSaveQuick" class="grad font-bold text-white text-[13px] px-5 py-2.5 rounded-xl hover:opacity-90">💾 Simpan Seri</button>
+                  <button id="btnCloseQuick" class="border border-line text-mut text-[13px] px-4 py-2.5 rounded-xl hover:text-white">Tutup</button>
+                </div>
+              </div>
             </div>
 
             <div class="bg-surface border border-line rounded-3xl p-5">
@@ -2342,11 +2385,16 @@ async function mirrorViaMangaDex(target) {
       if (!slug) throw new Error("Link ini tidak mengandung judul (formatnya /series/<id>) — agent tidak bisa menebak komiknya dari link. Ketik JUDUL komiknya di kolom target, atau tempel link MangaDex-nya.");
       query = slug.replace(/[-_]+/g, " ").replace(/\b(series|manga|manhwa|manhua|komik|chapter|baca)\b/gi, "").trim();
       if (!query) throw new Error("Link ini tidak mengandung judul (formatnya /series/<id>) — agent tidak bisa menebak komiknya dari link. Ketik JUDUL komiknya di kolom target, atau tempel link MangaDex-nya.");
+      query = query.replace(/\b\w/g, (c) => c.toUpperCase());
       mlog(`[PARSER] Link non-MangaDex terdeteksi — judul diekstrak dari URL: “${esc(query)}”. Situs asal tidak diakses; seri dicari di katalog MangaDex.`);
     }
     mlog(`[PARSER] Mencari judul “${esc(query)}” di katalog MangaDex…`);
     const s = await mdGet("/manga?title=" + encodeURIComponent(query) + "&limit=1");
-    if (!s.data || !s.data.length) throw new Error("Judul tidak ditemukan di MangaDex: " + query);
+    if (!s.data || !s.data.length) {
+      mlog(`[FALLBACK] “${esc(query)}” tidak ada di katalog MangaDex — membuka Form Konfirmasi Cepat (judul terisi otomatis; datanya kamu lengkapi sendiri).`, "err");
+      showQuickForm(query);
+      return { quickForm: true, title: query };
+    }
     id = s.data[0].id;
     mlog(`[PARSER] Ketemu UUID: ${id}`);
   }
@@ -2472,11 +2520,16 @@ async function runMirrorJob(source, target, mode) {
   $("btnRunMirror").disabled = true;
   $("btnRunMirror").textContent = "⏳ Agent sedang bekerja…";
   $("mirStatus").textContent = "Agent berjalan — lihat Terminal Live Log.";
+  $("mirQuick").classList.add("hidden");
   try {
     const payload = source === "worker" ? await mirrorViaWorker(target, mode) : await mirrorViaMangaDex(target);
-    const n = await saveMirrorPayload(payload, mode, target, source);
-    $("mirStatus").textContent = `Sync terakhir: ${new Date().toLocaleTimeString("id-ID")} — ${n} chapter baru ditambahkan.`;
-    toast("🤖 Mirror selesai — seri & chapter baru sudah masuk ShiniVerse!");
+    if (payload && payload.quickForm) {
+      $("mirStatus").textContent = "Seri tidak ditemukan di MangaDex — Form Konfirmasi Cepat sudah dibuka di bawah. Lengkapi seperlunya lalu klik 💾 Simpan Seri.";
+    } else {
+      const n = await saveMirrorPayload(payload, mode, target, source);
+      $("mirStatus").textContent = `Sync terakhir: ${new Date().toLocaleTimeString("id-ID")} — ${n} chapter baru ditambahkan.`;
+      toast("🤖 Mirror selesai — seri & chapter baru sudah masuk ShiniVerse!");
+    }
   } catch (e) {
     mlog("[ERROR] " + esc(e.message || String(e)), "err");
     $("mirStatus").textContent = "Sync gagal: " + (e.message || e);
@@ -2486,6 +2539,39 @@ async function runMirrorJob(source, target, mode) {
   $("btnRunMirror").disabled = false;
   $("btnRunMirror").textContent = "🚀 Jalankan Agent & Sync Sekarang";
 }
+function showQuickForm(titleGuess) {
+  $("qTitle").value = titleGuess || "";
+  $("qCover").value = "";
+  $("qSynopsis").value = "";
+  $("qGenres").value = "";
+  $("mirQuick").classList.remove("hidden");
+  setTimeout(() => $("mirQuick").scrollIntoView({ behavior: "smooth", block: "center" }), 60);
+}
+$("btnCloseQuick").addEventListener("click", () => $("mirQuick").classList.add("hidden"));
+$("btnSaveQuick").addEventListener("click", async () => {
+  const title = $("qTitle").value.trim();
+  if (!title) { toast("Judul wajib diisi."); return; }
+  const norm = (t) => (t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (LDB.series.some((x) => norm(x.title) === norm(title))) { toast("Seri ini sudah ada di portal — tidak dibuat duplikat."); return; }
+  const s = await DB.createSeries({
+    title,
+    alt: "",
+    author: "Manual (Form Cepat)",
+    type: $("qType").value,
+    genres: $("qGenres").value.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 6),
+    synopsis: $("qSynopsis").value.trim(),
+    cover: $("qCover").value.trim() || makeCover(title, "SHINIVERSE", "#7c3aed", "#e11d48", (title.trim()[0] || "S").toUpperCase()),
+    rating: Math.round((3.9 + Math.random()) * 10) / 10,
+    status: $("qStatus").value,
+    views: 0,
+    updatedAt: Date.now(),
+  });
+  await refreshAll();
+  $("mirQuick").classList.add("hidden");
+  mlog(`[STORAGE] Seri “${esc(title)}” disimpan MANUAL dari Form Konfirmasi Cepat (id ${s.id}). Tambah chapter lewat tab 📚 CMS Komik.`, "ok");
+  $("mirStatus").textContent = `✅ Seri “${title}” tersimpan & sudah tampil di portal.`;
+  toast("✅ Seri tersimpan ke portal!");
+});
 $("mirUrl").addEventListener("input", (e) => {
   if (e.target.value.includes("mangadex.org")) $("mirSource").value = "mangadex";
 });
