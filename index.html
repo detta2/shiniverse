@@ -2268,8 +2268,16 @@ function mlog(html, kind) {
 }
 $("btnClearLog").addEventListener("click", () => ($("mirrorLog").innerHTML = ""));
 const MD_API = "https://api.mangadex.org";
+function mdNetError() {
+  return new Error("Tidak bisa menghubungi api.mangadex.org dari jaringanmu (Failed to fetch) — API-nya terverifikasi ONLINE dari server lain, jadi kemungkinan domain MangaDex diblokir ISP/jaringanmu (umum di Indonesia) atau koneksi terputus. Tes cepat: buka mangadex.org di browser HP-mu — kalau situsnya juga tidak terbuka, berarti memang diblokir. Ganti jaringan (WiFi ↔ data seluler) lalu jalankan lagi.");
+}
 async function mdGet(path) {
-  const res = await fetch(MD_API + path, { headers: { Accept: "application/json" } });
+  let res;
+  try {
+    res = await fetch(MD_API + path, { headers: { Accept: "application/json" } });
+  } catch (e) {
+    throw mdNetError();
+  }
   if (!res.ok) throw new Error("MangaDex API HTTP " + res.status);
   return res.json();
 }
@@ -2282,28 +2290,59 @@ function pickLocalized(map, pref) {
 function imgSize(url) {
   return new Promise((resolve) => {
     const im = new Image();
-    const to = setTimeout(() => resolve({ w: 800, h: 1200 }), 7000);
+    const to = setTimeout(() => resolve({ w: 800, h: 1200 }), 5000);
     im.onload = () => { clearTimeout(to); resolve({ w: im.naturalWidth || 800, h: im.naturalHeight || 1200 }); };
     im.onerror = () => { clearTimeout(to); resolve({ w: 800, h: 1200 }); };
     im.src = url;
   });
 }
+async function mapPool(items, size, fn) {
+  const out = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx], idx);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(size, items.length) }, worker));
+  return out;
+}
 
 async function mirrorViaMangaDex(target) {
   mlog("[AGENT] Memulai Autonomous Mirror Agent…", "agent");
   mlog("[API] Menghubungi MangaDex API (api.mangadex.org)…");
-  let id = (target.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i) || [])[0];
+  mlog("[NET] Cek koneksi ke api.mangadex.org…");
+  try {
+    const p = await fetch(MD_API + "/ping");
+    if (!p.ok) throw new Error("ping HTTP " + p.status);
+    mlog("[NET] Koneksi OK (pong).", "ok");
+  } catch (e) {
+    throw mdNetError();
+  }
+  let id = null;
+  const uuidMatch = target.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+  let host = "";
+  try { host = new URL(target).hostname; } catch (e) {}
+  if (uuidMatch && (host.includes("mangadex.org") || !/^https?:\/\//i.test(target))) id = uuidMatch[0];
   if (!id) {
     let query = target;
     if (/^https?:\/\//i.test(target)) {
+      let slug = "";
       try {
         const u = new URL(target);
         const segs = u.pathname.split("/").filter(Boolean);
-        let slug = segs[segs.length - 1] || "";
-        if (!slug || /^\d+$/.test(slug)) slug = segs[segs.length - 2] || "";
-        query = slug.replace(/[-_]+/g, " ").replace(/\b(series|manga|manhwa|manhua|komik|chapter|baca)\b/gi, "").trim() || target;
-        mlog(`[PARSER] Link non-MangaDex terdeteksi — judul diekstrak dari URL: “${esc(query)}”. Situs asal tidak diakses; seri dicari di katalog MangaDex.`);
-      } catch (e) { /* abaikan, pakai target apa adanya */ }
+        const uuidLike = (s) => /^[0-9a-f]{8}-[0-9a-f-]{20,}$/i.test(s || "") || /^[0-9a-f]{24,}$/i.test(s || "");
+        const STOPSEG = new Set(["series", "manga", "manhwa", "manhua", "komik", "chapter", "baca", "title", "read"]);
+        for (let i = segs.length - 1; i >= 0; i--) {
+          if (!uuidLike(segs[i]) && !/^\d+$/.test(segs[i]) && !STOPSEG.has(segs[i].toLowerCase())) { slug = segs[i]; break; }
+        }
+        if (slug) slug = slug.replace(/[0-9a-f]{8}-[0-9a-f-]{20,}/gi, "").trim();
+      } catch (e) { slug = ""; }
+      if (!slug) throw new Error("Link ini tidak mengandung judul (formatnya /series/<id>) — agent tidak bisa menebak komiknya dari link. Ketik JUDUL komiknya di kolom target, atau tempel link MangaDex-nya.");
+      query = slug.replace(/[-_]+/g, " ").replace(/\b(series|manga|manhwa|manhua|komik|chapter|baca)\b/gi, "").trim();
+      if (!query) throw new Error("Link ini tidak mengandung judul (formatnya /series/<id>) — agent tidak bisa menebak komiknya dari link. Ketik JUDUL komiknya di kolom target, atau tempel link MangaDex-nya.");
+      mlog(`[PARSER] Link non-MangaDex terdeteksi — judul diekstrak dari URL: “${esc(query)}”. Situs asal tidak diakses; seri dicari di katalog MangaDex.`);
     }
     mlog(`[PARSER] Mencari judul “${esc(query)}” di katalog MangaDex…`);
     const s = await mdGet("/manga?title=" + encodeURIComponent(query) + "&limit=1");
@@ -2350,12 +2389,11 @@ async function mirrorViaMangaDex(target) {
     const files = (home.chapter && home.chapter.data) || [];
     if (!hash || !files.length) { mlog(`[CHAPTERS] Ch.${n}: dilewati (halaman kosong di API).`, "warn"); continue; }
     const urls = files.map((f) => `${home.baseUrl}/data/${hash}/${f}`);
-    mlog(`[PAGES] Ch.${n}: ${urls.length} halaman dari CDN MangaDex — mengukur dimensi…`);
-    const pages = [];
-    for (let i = 0; i < urls.length; i++) {
-      const sz = i < 90 ? await imgSize(urls[i]) : { w: 800, h: 1400 };
-      pages.push({ image: urls[i], w: sz.w, h: sz.h });
-    }
+    mlog(`[PAGES] Ch.${n}: ${urls.length} halaman dari CDN MangaDex — mengukur dimensi (paralel)…`);
+    const pages = await mapPool(urls, 6, async (u, i) => {
+      const sz = i < 45 ? await imgSize(u) : { w: 800, h: 1400 };
+      return { image: u, w: sz.w, h: sz.h };
+    });
     chapters.push({ number: n, title: c.attributes.title || "", pages });
   }
   if (!chapters.length) throw new Error("Semua chapter terakhir kosong di API.");
