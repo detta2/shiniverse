@@ -66,6 +66,9 @@ tailwind.config = {
   .layer-item{border:1px solid #1f2937;background:#131b2c;border-radius:.7rem;padding:.5rem .6rem;transition:all .15s}
   .layer-item:hover{border-color:#e11d48}
   .view{display:none}
+  body:not(.is-admin) .admin-only{display:none !important}
+  @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-7px)}40%,80%{transform:translateX(7px)}}
+  .shake{animation:shake .45s ease}
   .view.on{display:block}
 </style>
 </head>
@@ -93,7 +96,10 @@ tailwind.config = {
     <button id="btnNavSettings" class="flex items-center gap-2 text-[13px] font-bold bg-surface hover:bg-[#1a2438] border border-line rounded-full px-3.5 sm:px-4 py-2.5 transition">
       ⚙️ <span class="hidden lg:inline">Settings (API &amp; DB)</span>
     </button>
-    <button id="btnNavStudio" class="flex items-center gap-2 text-[13px] font-extrabold text-white rounded-full px-3.5 sm:px-5 py-2.5 grad-btn shadow-glow transition hover:brightness-110 active:translate-y-px">
+    <button id="btnAdminGate" class="flex items-center gap-2 text-[13px] font-bold bg-surface hover:bg-[#1a2438] border border-line rounded-full px-3.5 sm:px-4 py-2.5 transition">
+      🔒 <span class="hidden lg:inline" id="adminGateLabel">Admin</span>
+    </button>
+    <button id="btnNavStudio" class="admin-only flex items-center gap-2 text-[13px] font-extrabold text-white rounded-full px-3.5 sm:px-5 py-2.5 grad-btn shadow-glow transition hover:brightness-110 active:translate-y-px">
       🎨 <span class="hidden sm:inline">Studio Admin &amp; Brush Translator</span><span class="sm:hidden">Studio</span>
     </button>
   </div>
@@ -595,6 +601,15 @@ tailwind.config = {
         <p class="text-[11px] text-mut pt-1.5 leading-relaxed">Endpoint menerima POST JSON {image, prompt, negative_prompt, strength, guidance_scale, mask_blur} dan membalas {image: dataURL}. Gagal/kosong → inpainting lokal.</p>
       </div>
       <div class="border-t border-line pt-4">
+        <div class="text-[11px] font-extrabold tracking-wider text-slate-300 pb-2">🔐 MODE ADMIN</div>
+        <p id="setPinState" class="text-[11.5px] font-semibold text-mut pb-2">Status PIN: —</p>
+        <div class="flex gap-2">
+          <input id="setNewPin" type="password" inputmode="numeric" maxlength="12" placeholder="PIN baru (4–12 digit)" class="flex-1 bg-base border border-line rounded-xl px-3.5 py-2.5 text-[12.5px] font-mono">
+          <button id="btnSetPin" class="text-[12.5px] font-extrabold text-white grad-btn rounded-xl px-4 py-2.5 shadow-glow hover:brightness-110 transition flex-none">Simpan PIN</button>
+        </div>
+        <p class="text-[10.5px] text-mut pt-1.5">PIN dipakai untuk membuka mode admin (tombol 🔒 di navbar). Sesi admin berlaku per tab browser.</p>
+      </div>
+      <div class="border-t border-line pt-4">
         <div class="text-[11px] font-extrabold tracking-wider text-slate-300 pb-2">🛡️ READER</div>
         <label class="flex items-center gap-2.5 cursor-pointer">
           <input id="setAntiScrape" type="checkbox" checked class="accent-rose-500 w-4 h-4">
@@ -613,6 +628,26 @@ tailwind.config = {
     <div class="px-5 py-4 border-t border-line flex gap-2 justify-end sticky bottom-0 bg-surface">
       <button id="btnCancelSettings" class="text-[12.5px] font-semibold border border-line rounded-xl px-4 py-2.5 hover:bg-[#1a2438]">Batal</button>
       <button id="btnSaveSettings" class="text-[12.5px] font-extrabold text-white grad-btn rounded-xl px-5 py-2.5 shadow-glow hover:brightness-110">Simpan Settings</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ADMIN GATE MODAL ================= -->
+<div id="adminGateModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 backdrop-blur-sm p-3">
+  <div id="gateCard" class="w-[380px] max-w-[95vw] bg-surface border border-line rounded-3xl shadow-2xl fadein overflow-hidden">
+    <div class="px-5 py-4 border-b border-line grad-btn">
+      <div class="font-extrabold text-white text-[15.5px]">🔐 Mode Admin</div>
+      <div class="text-[11px] text-white/85" id="gateDesc">Masukkan PIN untuk membuka Studio &amp; fitur admin.</div>
+    </div>
+    <div class="px-5 py-4">
+      <label class="text-[12px] font-bold text-slate-200 block pb-1" id="gatePinLabel">PIN ADMIN</label>
+      <input id="gatePin" type="password" inputmode="numeric" maxlength="12" placeholder="••••" class="w-full bg-base border border-line rounded-xl px-3.5 py-3 text-[16px] font-mono tracking-[.3em] text-center">
+      <p id="gateErr" class="hidden text-[12px] font-bold text-rose-400 pt-2 text-center">PIN salah — coba lagi.</p>
+      <p class="text-[10.5px] text-mut leading-relaxed pt-2.5 text-center">PIN mengunci tampilan admin dari pengunjung biasa. Ini pemisahan sisi browser; perlindungan server penuh menyusul saat Supabase Auth aktif.</p>
+    </div>
+    <div class="px-5 py-4 border-t border-line flex gap-2 justify-end">
+      <button id="btnGateCancel" class="text-[12.5px] font-semibold border border-line rounded-xl px-4 py-2.5 hover:bg-[#1a2438]">Batal</button>
+      <button id="btnGateOk" class="text-[12.5px] font-extrabold text-white grad-btn rounded-xl px-5 py-2.5 shadow-glow hover:brightness-110">🔓 Masuk Mode Admin</button>
     </div>
   </div>
 </div>
@@ -948,6 +983,7 @@ const fontNameOf = (stack) => {
 };
 
 function showView(name) {
+  if (name === "studio" && !isAdmin()) { openAdminGate("studio"); return; }
   ["viewHome", "viewSeries", "viewReader", "viewBookmarks", "viewStudio"].forEach((v) => $(v).classList.remove("on"));
   $({ home: "viewHome", series: "viewSeries", reader: "viewReader", bookmarks: "viewBookmarks", studio: "viewStudio" }[name]).classList.add("on");
   document.querySelectorAll("[data-mnav]").forEach((b) => {
@@ -1083,7 +1119,7 @@ function renderChapterList(q) {
         <span class="block font-bold text-white text-[13.5px] truncate">Chapter ${c.number}${c.title ? " — " + esc(c.title) : ""}</span>
         <span class="block text-[11px] text-mut font-semibold">${relTime(c.hoursAgo)}</span>
       </span>
-      <button class="flex-none text-[11px] font-bold bg-[#1a2438] hover:bg-crim/20 hover:text-rose-200 border border-line hover:border-crim/50 rounded-lg px-3 py-2 transition" onclick="event.stopPropagation(); openStudioAt('${curSeries.id}','${c.id}')">✏️ Edit / Translate di Studio</button>
+      <button class="admin-only flex-none text-[11px] font-bold bg-[#1a2438] hover:bg-crim/20 hover:text-rose-200 border border-line hover:border-crim/50 rounded-lg px-3 py-2 transition" onclick="event.stopPropagation(); openStudioAt('${curSeries.id}','${c.id}')">✏️ Edit / Translate di Studio</button>
     </div>`).join("") || '<p class="text-mut text-sm text-center py-8">Tidak ada chapter yang cocok.</p>';
 }
 
@@ -1355,7 +1391,7 @@ async function renderCms() {
       const thumbs = pgs.map((p, i) => `
         <span class="relative inline-block group">
           <img src="${p.flattened || p.image}" class="w-11 h-[3.7rem] object-cover rounded-md border ${p.flattened ? "border-emerald-400/60" : "border-line"}" alt="">
-          <button class="absolute inset-0 bg-black/65 text-white text-[13px] font-bold rounded-md opacity-0 group-hover:opacity-100 transition" title="Buka di Brush Translator" onclick="openStudioPage('${s.id}','${c.id}',${i})">🖌️</button>
+          <button class="admin-only absolute inset-0 bg-black/65 text-white text-[13px] font-bold rounded-md opacity-0 group-hover:opacity-100 transition" title="Buka di Brush Translator" onclick="openStudioPage('${s.id}','${c.id}',${i})">🖌️</button>
           <span class="absolute bottom-0 left-0 text-[8px] font-bold bg-black/60 text-white rounded-tr px-1">${i + 1}${p.flattened ? " ✓" : ""}</span>
         </span>`).join("");
       chRows.push(`
@@ -1365,7 +1401,7 @@ async function renderCms() {
             <span class="text-[10.5px] text-mut font-semibold">${relTime(c.hoursAgo)} • ${pgs.length} halaman</span>
             <span class="flex-1"></span>
             <button class="text-[11px] font-bold bg-[#1a2438] hover:bg-crim/25 hover:text-rose-200 border border-line hover:border-crim/50 rounded-lg px-2.5 py-1.5 transition" onclick="openReader('${s.id}','${c.id}')">👁 Baca</button>
-            <button class="text-[11px] font-bold bg-[#1a2438] hover:bg-crim/25 hover:text-rose-200 border border-line hover:border-crim/50 rounded-lg px-2.5 py-1.5 transition" onclick="openStudioAt('${s.id}','${c.id}')">✏️ Edit / Translate di Studio</button>
+            <button class="admin-only text-[11px] font-bold bg-[#1a2438] hover:bg-crim/25 hover:text-rose-200 border border-line hover:border-crim/50 rounded-lg px-2.5 py-1.5 transition" onclick="openStudioAt('${s.id}','${c.id}')">✏️ Edit / Translate di Studio</button>
           </div>
           <div class="flex gap-1.5 flex-wrap mt-2">${thumbs || '<span class="text-[11px] text-mut">Tidak ada halaman</span>'}</div>
         </div>`);
@@ -2471,6 +2507,98 @@ setInterval(() => {
   mlog("[AGENT] Autonomous Mirror Agent siap.", "agent");
   mlog("[AGENT] Sumber aktif: MangaDex API (api.mangadex.org) / Worker Endpoint — tempel target lalu jalankan.");
 })();
+
+/* ============================================================
+   SISTEM PERAN — Pengguna (portal) vs Admin (Studio)
+   PIN tersimpan sebagai hash sederhana di settings; sesi
+   admin berlaku per tab (sessionStorage).
+============================================================ */
+function pinHash(p) {
+  let h = 7;
+  const s = "sv-pin:" + p;
+  for (let i = 0; i < s.length; i++) h = ((h * 31) + s.charCodeAt(i)) | 0;
+  return "h" + h;
+}
+function isAdmin() { return sessionStorage.getItem("sv_admin") === "1"; }
+function hasPin() { return !!settings.adminPinHash; }
+let adminIntent = null;
+function applyRoleUI() {
+  const admin = isAdmin();
+  document.body.classList.toggle("is-admin", admin);
+  $("adminGateLabel").textContent = admin ? "Admin Aktif" : "Admin";
+  $("btnAdminGate").firstChild.textContent = admin ? "🔓 " : "🔒 ";
+  const p = $("setPinState");
+  if (p) p.textContent = "Status PIN: " + (hasPin() ? "sudah dibuat ✓" : "BELUM dibuat — klik tombol 🔒 di navbar untuk membuatnya") + (admin ? " • sesi ini sedang mode admin" : "");
+}
+function openAdminGate(intent) {
+  if (isAdmin()) { adminLogout(); return; }
+  adminIntent = intent || null;
+  const first = !hasPin();
+  $("gateDesc").textContent = first ? "Belum ada PIN — buat PIN admin pertamamu sekarang (4–12 karakter)." : "Masukkan PIN untuk membuka Studio & fitur admin.";
+  $("gatePinLabel").textContent = first ? "BUAT PIN ADMIN BARU" : "PIN ADMIN";
+  $("btnGateOk").textContent = first ? "💾 Buat PIN & Masuk" : "🔓 Masuk Mode Admin";
+  $("gatePin").value = "";
+  $("gateErr").classList.add("hidden");
+  $("adminGateModal").classList.remove("hidden");
+  $("adminGateModal").classList.add("flex");
+  setTimeout(() => $("gatePin").focus(), 60);
+}
+function closeAdminGate() {
+  $("adminGateModal").classList.add("hidden");
+  $("adminGateModal").classList.remove("flex");
+}
+function adminLoginSuccess() {
+  sessionStorage.setItem("sv_admin", "1");
+  applyRoleUI();
+  closeAdminGate();
+  toast("🔓 Mode Admin aktif — Studio & tombol admin sekarang tampil.");
+  if (adminIntent === "studio") { adminIntent = null; openStudio(); }
+}
+function adminLogout() {
+  sessionStorage.removeItem("sv_admin");
+  applyRoleUI();
+  if ($("viewStudio").classList.contains("on")) showView("home");
+  toast("🔒 Mode Admin dimatikan — tampilan kembali ke mode pengguna.");
+}
+function submitGate() {
+  const pin = $("gatePin").value.trim();
+  if (pin.length < 4) {
+    $("gateErr").textContent = "PIN minimal 4 karakter.";
+    $("gateErr").classList.remove("hidden");
+    return;
+  }
+  if (!hasPin()) {
+    settings.adminPinHash = pinHash(pin);
+    saveSettings();
+    applyRoleUI();
+    toast("💾 PIN admin dibuat. Ingat PIN ini untuk masuk berikutnya!");
+    adminLoginSuccess();
+    return;
+  }
+  if (pinHash(pin) === settings.adminPinHash) { adminLoginSuccess(); return; }
+  $("gateErr").textContent = "PIN salah — coba lagi.";
+  $("gateErr").classList.remove("hidden");
+  $("gateCard").classList.remove("shake");
+  void $("gateCard").offsetWidth;
+  $("gateCard").classList.add("shake");
+  $("gatePin").value = "";
+  $("gatePin").focus();
+}
+$("btnAdminGate").addEventListener("click", () => openAdminGate(null));
+$("btnGateOk").addEventListener("click", submitGate);
+$("btnGateCancel").addEventListener("click", closeAdminGate);
+$("adminGateModal").addEventListener("click", (e) => { if (e.target === $("adminGateModal")) closeAdminGate(); });
+$("gatePin").addEventListener("keydown", (e) => { if (e.key === "Enter") submitGate(); });
+$("btnSetPin").addEventListener("click", () => {
+  const pin = $("setNewPin").value.trim();
+  if (pin.length < 4) { toast("PIN minimal 4 karakter."); return; }
+  settings.adminPinHash = pinHash(pin);
+  saveSettings();
+  $("setNewPin").value = "";
+  applyRoleUI();
+  toast("💾 PIN admin diperbarui.");
+});
+applyRoleUI();
 
 /* ---------------- BOOT ---------------- */
 window.addEventListener("load", async () => {

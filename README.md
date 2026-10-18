@@ -2,6 +2,9 @@
 
 SPA All-in-One: **Portal Baca Komik** ala shinigami.asia + **MangaBrush AI Translator Studio** (CMS & editor admin) dalam satu file `index.html`.
 
+## Pemisahan Peran: Pengguna vs Admin
+Default = **mode pengguna**: portal bersih tanpa tombol Studio/admin. Klik **🔒 Admin** di navbar dan masukkan **PIN** (dibuat saat pertama kali, bisa diganti di Settings) untuk masuk **mode admin** — tombol Studio, tombol ✏️ Edit/Translate, dan gerbang Studio hanya tampil/terbuka di mode ini. Sesi admin berlaku per tab browser. Catatan: karena 100% client-side, PIN adalah pemisah tampilan; perlindungan server penuh = Supabase Auth + RLS.
+
 ## Fitur Portal
 - Hero Carousel Trending, filter Manhwa/Manga/Manhua, grid update proyek + 3 tombol chapter terakhir, Sidebar Top Ranking (views), Live Search
 - Detail series: cover, rating, genre, sinopsis, bookmark, daftar chapter + cari chapter, tombol "✏️ Edit / Translate di Studio"
