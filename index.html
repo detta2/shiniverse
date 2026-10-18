@@ -517,7 +517,7 @@ tailwind.config = {
                 <option value="worker">🖥️ Agent Worker Endpoint (backend VPS milikmu)</option>
               </select>
               <label class="text-[11px] font-bold text-mut tracking-wide block mt-3 pb-1">TARGET URL / JUDUL</label>
-              <input id="mirUrl" type="text" placeholder="https://mangadex.org/title/xxxxxxxx-…/nama-komik — atau ketik judulnya saja" class="w-full bg-base border border-line rounded-xl px-3.5 py-2.5 text-[13px] font-mono">
+              <input id="mirUrl" type="text" placeholder="Tempel link seri dari situs mana pun / link MangaDex / ketik judulnya saja" class="w-full bg-base border border-line rounded-xl px-3.5 py-2.5 text-[13px] font-mono">
               <label class="text-[11px] font-bold text-mut tracking-wide block mt-3 pb-1">SYNC MODE</label>
               <div class="flex flex-col gap-1.5">
                 <label class="flex items-start gap-2.5 p-2.5 rounded-xl border border-line bg-base/60 cursor-pointer has-[:checked]:border-crim/70 has-[:checked]:bg-crim/5">
@@ -2294,9 +2294,20 @@ async function mirrorViaMangaDex(target) {
   mlog("[API] Menghubungi MangaDex API (api.mangadex.org)…");
   let id = (target.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i) || [])[0];
   if (!id) {
-    mlog(`[PARSER] URL tanpa UUID — mencari judul “${esc(target)}” di katalog MangaDex…`);
-    const s = await mdGet("/manga?title=" + encodeURIComponent(target) + "&limit=1");
-    if (!s.data || !s.data.length) throw new Error("Judul tidak ditemukan di MangaDex: " + target);
+    let query = target;
+    if (/^https?:\/\//i.test(target)) {
+      try {
+        const u = new URL(target);
+        const segs = u.pathname.split("/").filter(Boolean);
+        let slug = segs[segs.length - 1] || "";
+        if (!slug || /^\d+$/.test(slug)) slug = segs[segs.length - 2] || "";
+        query = slug.replace(/[-_]+/g, " ").replace(/\b(series|manga|manhwa|manhua|komik|chapter|baca)\b/gi, "").trim() || target;
+        mlog(`[PARSER] Link non-MangaDex terdeteksi — judul diekstrak dari URL: “${esc(query)}”. Situs asal tidak diakses; seri dicari di katalog MangaDex.`);
+      } catch (e) { /* abaikan, pakai target apa adanya */ }
+    }
+    mlog(`[PARSER] Mencari judul “${esc(query)}” di katalog MangaDex…`);
+    const s = await mdGet("/manga?title=" + encodeURIComponent(query) + "&limit=1");
+    if (!s.data || !s.data.length) throw new Error("Judul tidak ditemukan di MangaDex: " + query);
     id = s.data[0].id;
     mlog(`[PARSER] Ketemu UUID: ${id}`);
   }
@@ -2437,6 +2448,9 @@ async function runMirrorJob(source, target, mode) {
   $("btnRunMirror").disabled = false;
   $("btnRunMirror").textContent = "🚀 Jalankan Agent & Sync Sekarang";
 }
+$("mirUrl").addEventListener("input", (e) => {
+  if (e.target.value.includes("mangadex.org")) $("mirSource").value = "mangadex";
+});
 $("btnRunMirror").addEventListener("click", () => {
   const target = $("mirUrl").value.trim();
   if (!target) { toast("Isi Target URL / judul dulu."); return; }
