@@ -19,6 +19,7 @@ tailwind.config = {
 <link href="https://fonts.cdnfonts.com/css/anime-ace" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   html,body{background:#0b0f19}
@@ -472,7 +473,8 @@ tailwind.config = {
               <button id="btnTranslate" class="w-full text-white font-extrabold text-[14.5px] rounded-xl py-3 px-3 grad-btn shadow-glow transition hover:brightness-110 active:translate-y-px disabled:opacity-50">
                 ✨ Translate &amp; Generative Fill
               </button>
-              <p class="text-[10.5px] text-mut text-center mt-2 leading-relaxed">Scan AI 1,2 dtk → inpainting hapus teks asli →<br>OCR + typeset Bahasa Indonesia otomatis</p>
+              <p class="text-[10.5px] text-mut text-center mt-2 leading-relaxed">Membaca teks <b class="text-slate-300">asli</b> di area brush → menerjemahkan → hapus teks lama → typeset otomatis. Teks yang gagal dibaca dibiarkan apa adanya.</p>
+              <p id="engineInfo" class="text-[10px] text-center mt-1.5 leading-relaxed text-violet-300/90 font-semibold"></p>
             </div>
             <div class="p-3.5 border-b border-line">
               <div class="text-[10px] font-bold tracking-[.14em] text-mut pb-2">MODE INPAINTING &amp; PROMPT PRESET</div>
@@ -1876,6 +1878,7 @@ function initStudioOnce() {
   });
 
   applyPromptPreset();
+  renderEngineInfo();
   setTool("brush");
   if (!studioCtx.page) loadStudioImage(svgURI(SAMPLE_JP_1), 840, 1188, []);
   const pv = $("brushPreview");
@@ -2139,43 +2142,114 @@ $("btnDelText").addEventListener("click", () => {
 /* ============================================================
    PIPELINE TRANSLATE — Scan, Inpainting, OCR, Typesetting
 ============================================================ */
-const CORE = [
-  { id: "Mustahil! Tekanan energi macam apa ini?!", en: "Impossible! What kind of energy pressure is this?!" },
-  { id: "Jangan lengah, dia ada di belakangmu!", en: "Don't let your guard down, he's right behind you!" },
-  { id: "Mustahil! Kekuatan apa ini?!", en: "Impossible! What is this power?!" },
-  { id: "Muncul lagi kau…", en: "You again…" },
-  { id: "Kh… Kuat sekali dia!", en: "Tch… So strong!" },
-  { id: "Tidak ada jalan lari! Bersiaplah!", en: "There's no escape! Prepare yourself!" },
-  { id: "Aku belum kalah!", en: "I haven't lost yet!" },
-  { id: "Jangan meremehkanku!", en: "Don't underestimate me!" },
-];
-const ORIGINALS = {
-  ja: ["信じられない！この圧力は何だ！？", "油断するな、後ろにいるぞ！", "信じられない！この力は何だ！？", "また現れたか…", "くっ…強い！", "逃げられないぞ！覚悟しろ！", "俺はまだ負けていない！", "俺をなめるな！"],
-  ko: ["말도 안 돼! 이 압박감은 뭐야?!", "방심하지 마, 뒤에 있어!", "말도 안 돼! 이 힘은 뭐야?!", "또 나타났군…", "큭… 강해!", "도망칠 수 없다! 각오해라!", "난 아직 지지 않았어!", "날 얕보지 마!"],
-  zh: ["难以置信！这是什么压力？！", "别大意，他在你身后！", "难以置信！这是什么力量？！", "你又出现了…", "可恶…好强！", "你逃不掉的！觉悟吧！", "我还没有输！", "别小看我！"],
-  en: ["Impossible! What is this pressure?!", "Don't drop your guard, he's behind you!", "Impossible! What is this power?!", "You again…", "Tch… so strong!", "There's no escape! Prepare yourself!", "I haven't lost yet!", "Don't underestimate me!"],
-};
-const SFX_PAIRS = {
-  ja: [{ o: "ドーン！！", id: "DUAAARRR!!", en: "BOOOOM!!" }, { o: "バンッ！", id: "SRAAAKK!", en: "WHAAM!" }, { o: "ゴゴゴ…", id: "GROOO… (MENEGANGKAN)", en: "RUMBLE… (MENACING)" }, { o: "ドクン…ドクン…", id: "DUG… DUG… (BERDEBAR)", en: "THUMP… THUMP…" }],
-  ko: [{ o: "쾅!!", id: "DUAAARRR!!", en: "BOOOOM!!" }, { o: "쿵!", id: "SRAAAKK!", en: "WHAAM!" }],
-  zh: [{ o: "轰！！", id: "DUAAARRR!!", en: "BOOOOM!!" }, { o: "砰！", id: "SRAAAKK!", en: "WHAAM!" }],
-  en: [{ o: "BOOM!!", id: "DUAAARRR!!", en: "BOOM!!" }, { o: "BAM!", id: "SRAAAKK!", en: "BAM!" }],
-};
-const lastPick = { bubble: -1, sfx: -1 };
-function pickPair(mode) {
+/* ---- Mesin OCR LOKAL (gratis, tanpa API key): Tesseract.js membaca teks ASLI
+   di potongan gambar, lalu diterjemahkan via API terjemahan gratis.
+   Tidak ada lagi teks contoh/karangan: kalau teks tidak terbaca, area dilewati. ---- */
+const TESS_LANG = { ja: "jpn", ko: "kor", zh: "chi_sim", en: "eng" };
+const GT_SL = { ja: "ja", ko: "ko", zh: "zh-CN", en: "en", id: "id" };
+const MM_SL = { ja: "ja", ko: "ko", zh: "zh-CN", en: "en", id: "id" };
+let tessWorker = null, tessLangKey = "";
+async function getTessWorker(langKey) {
+  if (tessWorker && tessLangKey === langKey) return tessWorker;
+  if (typeof Tesseract === "undefined") throw new Error("Library OCR (Tesseract.js) gagal dimuat — cek koneksi internet.");
+  if (tessWorker) { try { await tessWorker.terminate(); } catch (e) {} tessWorker = null; }
+  setStatus("Menyiapkan mesin OCR lokal… (data bahasa diunduh sekali saja, berikutnya tersimpan di cache)");
+  tessWorker = await Tesseract.createWorker(langKey, 1, {
+    workerPath: "https://cdn.jsdelivr.net/npm/tesseract.js@5.0.5/dist/worker.min.js",
+    corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.0.0/tesseract-core-simd-lstm.wasm.js",
+    langPath: "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main",
+    gzip: false,
+  });
+  tessLangKey = langKey;
+  return tessWorker;
+}
+function prepCropForOCR(crop) {
+  const scale = Math.max(1, Math.min(3, 320 / Math.max(crop.width, crop.height)));
+  const tmp = document.createElement("canvas");
+  tmp.width = Math.round(crop.width * scale);
+  tmp.height = Math.round(crop.height * scale);
+  const tctx = tmp.getContext("2d");
+  tctx.fillStyle = "#ffffff";
+  tctx.fillRect(0, 0, tmp.width, tmp.height);
+  tctx.drawImage(crop, 0, 0, tmp.width, tmp.height);
+  try {
+    const id = tctx.getImageData(0, 0, tmp.width, tmp.height);
+    const d = id.data;
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 16) sum += (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+    const mean = sum / (d.length / 16);
+    const invert = mean < 110;
+    for (let i = 0; i < d.length; i += 4) {
+      let g = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+      if (invert) g = 255 - g;
+      g = Math.max(0, Math.min(255, (g - 128) * 1.35 + 128));
+      d[i] = d[i + 1] = d[i + 2] = g;
+      d[i + 3] = 255;
+    }
+    tctx.putImageData(id, 0, 0);
+  } catch (e) { /* biarkan apa adanya */ }
+  // Border putih di sekeliling: Tesseract membaca teks yang menyentuh tepi gambar dengan buruk
+  const B = Math.max(14, Math.round(0.07 * Math.max(tmp.width, tmp.height)));
+  const out = document.createElement("canvas");
+  out.width = tmp.width + B * 2;
+  out.height = tmp.height + B * 2;
+  const octx = out.getContext("2d");
+  octx.fillStyle = "#ffffff";
+  octx.fillRect(0, 0, out.width, out.height);
+  octx.drawImage(tmp, B, B);
+  return out;
+}
+async function ocrCropText(crop) {
+  const src = $("srcLang").value;
+  const langKey = TESS_LANG[src] || "eng";
+  const worker = await getTessWorker(langKey);
+  try { await worker.setParameters({ tessedit_pageseg_mode: "6" }); } catch (e) {}
+  const { data } = await worker.recognize(prepCropForOCR(crop));
+  let t = (data && data.text ? data.text : "").replace(/\r/g, "").trim();
+  if (src === "ja" || src === "zh" || src === "ko") t = t.replace(/\s+(?=[\u3000-\u9fff\uac00-\ud7af])/g, "").replace(/(?<=[\u3000-\u9fff\uac00-\ud7af])\s+/g, "");
+  return t.replace(/[ \t]+/g, " ").replace(/\n{2,}/g, "\n").trim();
+}
+async function translateGoogleGtx(text, src, tgt) {
+  const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=" + (GT_SL[src] || "auto") + "&tl=" + (GT_SL[tgt] || "id") + "&dt=t&q=" + encodeURIComponent(text.slice(0, 900));
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("Google Translate HTTP " + r.status);
+  const j = await r.json();
+  const out = ((j && j[0]) || []).map((seg) => seg[0] || "").join("").trim();
+  if (!out) throw new Error("Google Translate: hasil kosong");
+  return out;
+}
+async function translateMyMemory(text, src, tgt) {
+  const pair = (MM_SL[src] || "en") + "|" + (MM_SL[tgt] || "id");
+  const url = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(text.slice(0, 480)) + "&langpair=" + pair;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("MyMemory HTTP " + r.status);
+  const j = await r.json();
+  const out = j && j.responseData && j.responseData.translatedText ? String(j.responseData.translatedText).trim() : "";
+  if (!out || /MYMEMORY WARNING|QUERY LENGTH LIMIT|INVALID/i.test(out)) throw new Error("MyMemory: kuota/gagal");
+  return out;
+}
+async function translateFreeText(text, src, tgt) {
+  try { return await translateGoogleGtx(text, src, tgt); }
+  catch (e) { return await translateMyMemory(text, src, tgt); }
+}
+async function localOCRTranslate(crop) {
   const src = $("srcLang").value, tgt = $("tgtLang").value;
-  if (mode === "sfx") {
-    const pool = SFX_PAIRS[src] || SFX_PAIRS.ja;
-    let i = Math.floor(Math.random() * pool.length);
-    if (pool.length > 1 && i === lastPick.sfx) i = (i + 1) % pool.length;
-    lastPick.sfx = i;
-    return { original: pool[i].o, translation: tgt === "en" ? pool[i].en : pool[i].id };
+  setStatus("OCR lokal membaca teks asli di area brush…");
+  const original = await ocrCropText(crop);
+  if (!original || original.replace(/[^\p{L}\p{N}]/gu, "").length < 2) throw new Error("teks tidak terbaca");
+  let translation = original;
+  if (src !== tgt) {
+    setStatus("Menerjemahkan hasil OCR…");
+    translation = await translateFreeText(original, src, tgt);
   }
-  const origs = ORIGINALS[src] || ORIGINALS.ja;
-  let i = Math.floor(Math.random() * CORE.length);
-  if (i === lastPick.bubble) i = (i + 1) % CORE.length;
-  lastPick.bubble = i;
-  return { original: origs[i], translation: tgt === "en" ? CORE[i].en : CORE[i].id };
+  return { original, translation };
+}
+function renderEngineInfo() {
+  const el = $("engineInfo");
+  if (!el) return;
+  if (settings.claudeUrl) el.textContent = "Mesin aktif: Muse Inpaint Endpoint (OCR + generative fill dari endpoint-mu).";
+  else if (settings.geminiKey) el.textContent = "Mesin aktif: Gemini Vision — membaca huruf komik paling akurat.";
+  else el.textContent = "Mesin aktif: OCR Lokal (gratis, tanpa API key) — huruf bersih terbaca baik; huruf bergaya/vertikal bisa meleset. Isi Gemini API key di Settings untuk kualitas terbaik.";
 }
 
 const LANG_NAME = { ja: "Jepang", ko: "Korea", zh: "Mandarin", en: "Inggris", id: "Indonesia" };
@@ -2387,15 +2461,23 @@ function addTranslationText(text, original, x, y, w, h, mode, fill) {
 }
 
 async function processRegion(br) {
-  const pad = 8;
+  const pad = 16;
   const x = Math.max(0, Math.floor(br.left - pad));
   const y = Math.max(0, Math.floor(br.top - pad));
   const w = Math.min(naturalW - x, Math.ceil(br.width + pad * 2));
   const h = Math.min(naturalH - y, Math.ceil(br.height + pad * 2));
-  if (w < 8 || h < 8) return;
+  if (w < 8 || h < 8) return false;
   const crop = document.createElement("canvas");
   crop.width = w; crop.height = h;
   crop.getContext("2d").drawImage(plate, x, y, w, h, 0, 0, w, h);
+  // Crop lebih lebar KHUSUS untuk dibaca mesin (Gemini/OCR): sapuan kuas yang sedikit
+  // lebih kecil dari teksnya tidak boleh memotong huruf di tepi balon.
+  const OX = 44;
+  const ox = Math.max(0, x - OX), oy = Math.max(0, y - OX);
+  const ow = Math.min(naturalW - ox, w + OX * 2), oh = Math.min(naturalH - oy, h + OX * 2);
+  const ocrCrop = document.createElement("canvas");
+  ocrCrop.width = ow; ocrCrop.height = oh;
+  ocrCrop.getContext("2d").drawImage(plate, ox, oy, ow, oh, 0, 0, ow, oh);
   const mode = document.querySelector("input[name=inpMode]:checked").value;
   const fill = sampleRegionColor(x, y, w, h);
   let res = null, patchImg = null;
@@ -2412,9 +2494,12 @@ async function processRegion(br) {
     } catch (e) { patchImg = null; }
   }
   if (!res && settings.geminiKey) {
-    try { res = await geminiOCR(crop); } catch (e) { res = null; }
+    try { res = await geminiOCR(ocrCrop); } catch (e) { res = null; }
   }
-  if (!res) res = pickPair(mode);
+  if (!res) {
+    try { res = await localOCRTranslate(ocrCrop); } catch (e) { res = null; }
+  }
+  if (!res) return false; // teks tidak terbaca -> area dibiarkan apa adanya, tidak ditimpa karangan
   if (patchImg) {
     pctx.drawImage(patchImg, x, y, w, h);
   } else {
@@ -2424,6 +2509,7 @@ async function processRegion(br) {
   canvas.requestRenderAll();
   addTranslationText(res.translation, res.original, x, y, w, h, mode, mode === "bubble" ? fill : fill);
   syncLayersFromCanvas();
+  return true;
 }
 
 async function translateBrushed() {
@@ -2434,27 +2520,37 @@ async function translateBrushed() {
   const btn = $("btnTranslate");
   const btnHtml = btn.innerHTML;
   btn.disabled = true;
-  btn.innerHTML = '<span class="shimmer-text">✨ AI sedang bekerja…</span>';
+  btn.innerHTML = '<span class="shimmer-text">✨ Sedang membaca & menerjemahkan…</span>';
   const clusters = clusterMasks(masks.slice());
   showScan(clusters);
-  setStatus("AI memindai area brush (OCR + membaca teks)…");
-  await wait(1200);
+  setStatus("Memindai area brush…");
+  await wait(450);
   hideScan();
-  let n = 0;
+  let okCount = 0, failCount = 0, idx = 0;
+  const donePaths = new Set();
   for (const c of clusters) {
-    setStatus(`Memproses area ${n + 1}/${clusters.length} — generative fill + typesetting…`);
-    await processRegion(c);
-    c.paths.forEach((p) => canvas.remove(p));
-    n++;
-    await wait(120);
+    idx++;
+    setStatus(`Memproses area ${idx}/${clusters.length}…`);
+    const ok = await processRegion(c);
+    if (ok) { okCount++; c.paths.forEach((p) => { canvas.remove(p); donePaths.add(p); }); }
+    else failCount++;
+    await wait(80);
   }
-  masks = [];
+  masks = masks.filter((m) => !donePaths.has(m));
   updateMaskUI();
   btn.disabled = false;
   btn.innerHTML = btnHtml;
   translating = false;
-  setStatus(`Selesai! ${n} area diterjemahkan jadi layer teks. Klik 💾 Publish untuk menyimpannya ke chapter.`);
-  toast(`✅ ${n} area berhasil diterjemahkan`);
+  if (okCount && !failCount) {
+    setStatus(`Selesai! ${okCount} area diterjemahkan dari teks aslinya. Klik 💾 Publish untuk menyimpan ke chapter.`);
+    toast(`✅ ${okCount} area berhasil diterjemahkan`);
+  } else if (okCount) {
+    setStatus(`Selesai sebagian: ${okCount} area diterjemahkan, ${failCount} area GAGAL dibaca — teks aslinya dibiarkan & maskernya masih ada. Coba cek pilihan Bahasa Sumber, besarkan area brush, atau isi Gemini API key di Settings untuk hasil terbaik.`);
+    toast(`⚠️ ${okCount} berhasil, ${failCount} gagal dibaca`);
+  } else {
+    setStatus("Tidak ada area yang berhasil dibaca. Teks asli TIDAK diubah. Cek: Bahasa Sumber sudah benar? Area brush menutupi seluruh teksnya? Atau isi Gemini API key di Settings — Gemini membaca huruf komik jauh lebih akurat daripada OCR lokal.");
+    toast("❌ Semua area gagal dibaca — teks asli dibiarkan");
+  }
 }
 $("btnTranslate").addEventListener("click", translateBrushed);
 
@@ -2546,6 +2642,7 @@ $("btnSaveSettings").addEventListener("click", async () => {
   saveSettings();
   initSupa();
   closeSettings();
+  renderEngineInfo();
   await refreshAll();
   await renderCms();
   toast(settings.supaUrl && dbMode === "supabase" ? "☁️ Settings disimpan — mode Supabase aktif." : "💾 Settings disimpan — mode localStorage.");
