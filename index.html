@@ -528,7 +528,7 @@ tailwind.config = {
                 <div class="text-[10px] font-bold tracking-[.14em] text-mut">INSPECTOR TEKS</div>
                 <span class="text-[9.5px] font-bold px-2 py-0.5 rounded-full bg-crim/15 text-rose-300 border border-crim/40">LAYER AKTIF</span>
               </div>
-              <label class="text-[11px] font-semibold text-slate-300 block pb-1">Isi teks terjemahan</label>
+              <label class="text-[11px] font-semibold text-slate-300 block pb-1">Isi teks terjemahan <span class="text-mut font-normal">— ketik untuk mengoreksi hasil AI/OCR; teks otomatis diperkecil agar tetap pas di balon</span></label>
               <textarea id="pText" rows="2" class="w-full bg-[#131b2c] border border-line rounded-lg text-[13px] font-semibold px-2.5 py-2 resize-none"></textarea>
               <label class="text-[11px] font-semibold text-slate-300 block pt-2.5 pb-1">Font</label>
               <select id="pFont" class="w-full bg-[#131b2c] border border-line rounded-lg text-[12.5px] font-semibold px-2.5 py-2">
@@ -2045,7 +2045,7 @@ function refreshLayerList() {
         <span class="text-[9px] font-bold px-1.5 py-px rounded bg-base border border-line text-mut">${esc(l.id)}</span>
         <span class="text-[9px] text-mut">${esc(l.font_family)} ${l.font_size}px</span>
         <span class="flex-1"></span>
-        <button class="text-[11px] px-1.5 py-0.5 rounded bg-[#1a2438] border border-line hover:border-crim/60" title="Fokus layer" onclick="focusLayer('${l.id}')">🎯</button>
+        <button class="text-[11px] font-bold px-2 py-0.5 rounded bg-crim/20 text-rose-200 border border-crim/50 hover:bg-crim/40" title="Edit teks terjemahan" onclick="editLayer('${l.id}')">✏️ Edit</button>
         <button class="text-[11px] px-1.5 py-0.5 rounded bg-[#1a2438] border border-line hover:border-crim/60 hover:text-rose-300" title="Hapus layer" onclick="deleteLayer('${l.id}')">🗑</button>
       </div>
       <div class="text-[11px] text-mut leading-snug">${esc(l.original_text)}</div>
@@ -2054,6 +2054,14 @@ function refreshLayerList() {
   });
   $("layerCount").textContent = pageLayers.length + " layer";
   $("layerJson").textContent = JSON.stringify(pageLayers, null, 1);
+}
+function editLayer(id) {
+  focusLayer(id);
+  showProps();
+  const panel = $("propPanel");
+  if (panel) panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  const ta = $("pText");
+  if (ta) { ta.focus(); ta.select(); }
 }
 function focusLayer(id) {
   const o = canvas.getObjects().find((x) => x.isTranslation && x.layerId === id);
@@ -2083,6 +2091,9 @@ function addTextFromLayer(l) {
   tb.layerId = l.id;
   tb.originalText = l.original_text || "";
   tb.isSfx = !!l.is_sfx;
+  tb.fitTargetW = Math.max(40, l.bbox.width);
+  tb.fitTargetH = Math.max(24, Math.round(l.bbox.height * 1.1));
+  tb.fitBaseFs = l.font_size || 28;
   tb.selectable = tool === "select";
   canvas.add(tb);
   tb.setCoords();
@@ -2109,13 +2120,17 @@ function showProps() {
   $("pRotateVal").textContent = Math.round(o.angle || 0) + "°";
   $("pSfx").checked = !!o.isSfx;
 }
+function syncSizeUI(o) {
+  $("pSize").value = Math.round(o.fontSize);
+  $("pSizeVal").textContent = Math.round(o.fontSize) + "px";
+}
 function afterPropEdit(o) {
   if (o.initDimensions) o.initDimensions();
   o.setCoords();
   canvas.requestRenderAll();
   syncLayersFromCanvas();
 }
-$("pText").addEventListener("input", (e) => { const o = activeText(); if (!o) return; o.set("text", e.target.value); afterPropEdit(o); });
+$("pText").addEventListener("input", (e) => { const o = activeText(); if (!o) return; o.set("text", e.target.value); fitTranslationText(o); afterPropEdit(o); syncSizeUI(o); });
 $("pFont").addEventListener("change", (e) => { const o = activeText(); if (!o) return; o.set("fontFamily", e.target.value); afterPropEdit(o); });
 $("pSize").addEventListener("input", (e) => { const o = activeText(); if (!o) return; o.set("fontSize", +e.target.value); $("pSizeVal").textContent = e.target.value + "px"; afterPropEdit(o); });
 $("pColor").addEventListener("input", (e) => { const o = activeText(); if (!o) return; o.set("fill", e.target.value); canvas.requestRenderAll(); syncLayersFromCanvas(); });
@@ -2725,6 +2740,34 @@ function showScan(rects) {
 }
 function hideScan() { $("scanLayer").innerHTML = ""; }
 
+/* Pas-kan ulang teks ke kotak balonnya: font dihitung dari awal lalu
+   dikecilkan bertahap (lebar disematkan ulang di tiap langkah — Fabric
+   Textbox melebar mengikuti kata terpanjang) sampai tinggi & lebar muat.
+   Dipakai saat layer dibuat DAN setiap kali user mengedit teks manual,
+   supaya hasil edit tidak pernah meluber keluar balon. */
+function fitTranslationText(tb) {
+  const targetW = tb.fitTargetW, targetH = tb.fitTargetH;
+  if (!targetW || !targetH) return;
+  let fs = Math.max(13, Math.min(72, tb.fitBaseFs || 40));
+  tb.set("fontSize", fs);
+  tb.set("width", targetW);
+  if (tb.initDimensions) tb.initDimensions();
+  tb.setCoords();
+  let guard = 0;
+  while ((tb.height > targetH || tb.width > targetW + 1) && fs > 9 && guard < 60) {
+    fs = Math.max(9, Math.floor(fs * 0.93));
+    tb.set("fontSize", fs);
+    tb.set("width", targetW);
+    if (tb.initDimensions) tb.initDimensions();
+    tb.setCoords();
+    guard++;
+  }
+  if (Math.round(tb.width) !== Math.round(targetW)) {
+    tb.set("width", targetW);
+    if (tb.initDimensions) tb.initDimensions();
+    tb.setCoords();
+  }
+}
 function addTranslationText(text, original, x, y, w, h, mode, fill, precise) {
   const isSfx = mode === "sfx";
   const widthFactor = precise ? 0.9 : isSfx ? 0.98 : 0.74;
@@ -2754,31 +2797,11 @@ function addTranslationText(text, original, x, y, w, h, mode, fill, precise) {
   tb.layerId = "mask_" + (++layerSeq);
   tb.originalText = original;
   tb.isSfx = isSfx;
-  const targetW = Math.max(48, w * widthFactor);
-  let fs = Math.max(13, Math.min(72, h * (isSfx ? 0.6 : 0.52)));
-  tb.set("fontSize", fs);
+  tb.fitTargetW = Math.max(48, w * widthFactor);
+  tb.fitTargetH = precise ? h * 0.95 : isSfx ? h * 1.1 : h * 0.94;
+  tb.fitBaseFs = Math.max(13, Math.min(72, h * (isSfx ? 0.6 : 0.52)));
   canvas.add(tb);
-  if (tb.initDimensions) tb.initDimensions();
-  tb.setCoords();
-  let guard = 0;
-  const fitTarget = precise ? h * 0.95 : isSfx ? h * 1.1 : h * 0.94;
-  // Fabric Textbox MELEBARKAN kotaknya mengikuti kata terpanjang pada fontSize
-  // yang sedang aktif — mulai dari font besar membuat kotak permanen melebar
-  // (teks jadi keluar balon). Sematkan ulang lebar target di tiap langkah
-  // pengecilan sampai tinggi pas DAN kata terpanjang muat di lebar target.
-  while ((tb.height > fitTarget || tb.width > targetW + 1) && fs > 9 && guard < 60) {
-    fs = Math.max(9, Math.floor(fs * 0.93));
-    tb.set("fontSize", fs);
-    tb.set("width", targetW);
-    if (tb.initDimensions) tb.initDimensions();
-    tb.setCoords();
-    guard++;
-  }
-  if (Math.round(tb.width) !== Math.round(targetW)) {
-    tb.set("width", targetW);
-    if (tb.initDimensions) tb.initDimensions();
-    tb.setCoords();
-  }
+  fitTranslationText(tb);
   tb.selectable = tool === "select";
   canvas.setActiveObject(tb);
   if (tool !== "select") setTool("select");
